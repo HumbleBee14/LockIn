@@ -10,6 +10,8 @@ settings:
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "252N2WS4Y3"
     ENABLE_HARDENED_RUNTIME: YES
+    MARKETING_VERSION: "0.0.0"
+    CURRENT_PROJECT_VERSION: "1"
 targets:
   LockIn:
     type: application
