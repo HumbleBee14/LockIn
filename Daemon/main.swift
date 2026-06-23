@@ -1,7 +1,8 @@
 import Foundation
 import LockInDaemonCore
 
-let listener = DaemonListener()
+let controller = BlockController.makeSystemController()
+let listener = DaemonListener(controller: controller)
 listener.start()
 FileHandle.standardError.write(Data("lockind listening\n".utf8))
 RunLoop.main.run()
