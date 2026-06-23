@@ -19,7 +19,15 @@ Website blocking is built on top of [SelfControl](https://github.com/SelfControl
 
 ## Status
 
-Early development. macOS 13+.
+MVP feature-complete (Phases 0–3) and building green on macOS 13+; the lock core,
+SwiftUI UI, and app-blocking agent are all in place with unit tests passing. The
+remaining work is **hardware validation** — the Developer-ID-signed install flow,
+the pf/hosts engine canary across browsers, the code-signing-authorized XPC
+round-trip, launch-constraint support, and the daemon→agent push direction — all
+documented in [`Tests/Validation/RISKS.md`](Tests/Validation/RISKS.md) with run
+procedures, since they need a real Mac with root and signing.
+
+Autonomous build decisions are logged in [`DECISIONS.md`](DECISIONS.md).
 
 ## License
 
