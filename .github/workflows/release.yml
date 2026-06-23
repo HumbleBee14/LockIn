@@ -23,7 +23,7 @@ jobs:
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -95,7 +95,7 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" ".artifacts/$APP_NAME-macos-signed.zip"
 
       - name: Upload signed artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lockin-macos-signed
           path: .artifacts/LockIn-macos-signed.zip
@@ -110,7 +110,7 @@ jobs:
       APP_NAME: LockIn
     steps:
       - name: Download signed artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: lockin-macos-signed
 
@@ -169,7 +169,7 @@ jobs:
           mv "$DMG_NAME" "$APP_NAME.dmg"
 
       - name: Publish release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: ${{ env.APP_NAME }}.dmg
           generate_release_notes: true

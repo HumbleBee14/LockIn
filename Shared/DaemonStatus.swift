@@ -1,6 +1,6 @@
 import Foundation
 
-public struct DaemonStatus: Codable, Equatable {
+public struct DaemonStatus: Codable, Equatable, Sendable {
     public let active: Bool
     public let source: String?          // "quick" | "scheduled"
     public let blockSetId: String?
