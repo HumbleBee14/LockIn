@@ -12,6 +12,9 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     MARKETING_VERSION: "0.0.0"
     CURRENT_PROJECT_VERSION: "1"
+  configs:
+    Release:
+      CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
 targets:
   LockIn:
     type: application
