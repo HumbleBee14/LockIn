@@ -2,90 +2,171 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    tags: [ 'v*' ]
   workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
 jobs:
-  release:
-    runs-on: macos-14
+  build-macos:
+    name: Build & sign macOS
+    runs-on: macos-latest
+    timeout-minutes: 60
     env:
       SCHEME: LockIn
       APP_NAME: LockIn
-      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      - name: Import signing certificate
-        env:
-          CERT_P12: ${{ secrets.DEVELOPER_ID_CERT_P12 }}
-          CERT_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          set -euo pipefail
-          CERT_PATH="$RUNNER_TEMP/cert.p12"
-          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
-          echo "$CERT_P12" | base64 --decode > "$CERT_PATH"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          security import "$CERT_PATH" -P "$CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
-          security list-keychain -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
-          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-
       - name: Derive version from tag
         id: version
         run: |
-          set -euo pipefail
           TAG="${GITHUB_REF_NAME:-v0.0.0}"
           echo "marketing=${TAG#v}" >> "$GITHUB_OUTPUT"
           echo "build=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
 
+      - name: Import Apple signing certificate
+        env:
+          AGENT_TEMPDIRECTORY: ${{ runner.temp }}
+          MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$AGENT_TEMPDIRECTORY/buildagent.keychain"
+          CERT_PATH="$AGENT_TEMPDIRECTORY/mac_cert.p12"
+          echo "$MAC_CERT_P12" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$MAC_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security list-keychains -s "$KEYCHAIN_PATH"
+          security unlock-keychain -p "" "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" "$KEYCHAIN_PATH"
+
+      - name: Debug signing identities
+        env:
+          AGENT_TEMPDIRECTORY: ${{ runner.temp }}
+        run: security find-identity -v -p codesigning "$AGENT_TEMPDIRECTORY/buildagent.keychain"
+
       - name: Generate project
         run: xcodegen generate
 
-      - name: Build and sign (Developer ID)
+      - name: Build & sign (Developer ID)
+        env:
+          AGENT_TEMPDIRECTORY: ${{ runner.temp }}
+          MARKETING_VERSION: ${{ steps.version.outputs.marketing }}
+          BUILD_VERSION: ${{ steps.version.outputs.build }}
         run: |
           set -euo pipefail
+          KEYCHAIN_PATH="$AGENT_TEMPDIRECTORY/buildagent.keychain"
+          SIGN_IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
+            | awk -v team="$APPLE_TEAM_ID" '/Developer ID Application/ && $0 ~ team {print $2; exit}')"
+          if [ -z "$SIGN_IDENTITY" ]; then
+            echo "No Developer ID Application identity for team $APPLE_TEAM_ID in build keychain"
+            exit 1
+          fi
+          echo "Using signing identity SHA: $SIGN_IDENTITY"
+
           xcodebuild -project "$APP_NAME.xcodeproj" -scheme "$SCHEME" \
             -configuration Release -derivedDataPath build \
             CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="Developer ID Application" \
-            DEVELOPMENT_TEAM="$TEAM_ID" \
-            OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime" \
-            MARKETING_VERSION="${{ steps.version.outputs.marketing }}" \
-            CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build }}" \
+            CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
+            OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime --keychain $KEYCHAIN_PATH" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            MARKETING_VERSION="$MARKETING_VERSION" \
+            CURRENT_PROJECT_VERSION="$BUILD_VERSION" \
             build
 
-      - name: Create DMG
+          APP_PATH="build/Build/Products/Release/$APP_NAME.app"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
+      - name: Prepare signed artifact
         run: |
           set -euo pipefail
           APP_PATH="build/Build/Products/Release/$APP_NAME.app"
-          STAGING="$RUNNER_TEMP/dmg"
-          mkdir -p "$STAGING"
-          cp -R "$APP_PATH" "$STAGING/"
-          ln -s /Applications "$STAGING/Applications"
-          hdiutil create -volname "$APP_NAME" -srcfolder "$STAGING" \
-            -ov -format UDZO "$APP_NAME.dmg"
+          mkdir -p .artifacts
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" ".artifacts/$APP_NAME-macos-signed.zip"
 
-      - name: Notarize and staple
+      - name: Upload signed artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lockin-macos-signed
+          path: .artifacts/LockIn-macos-signed.zip
+          retention-days: 5
+
+  notarize-macos:
+    name: Notarize & publish macOS
+    runs-on: macos-latest
+    timeout-minutes: 60
+    needs: build-macos
+    env:
+      APP_NAME: LockIn
+    steps:
+      - name: Download signed artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lockin-macos-signed
+
+      - name: Notarize, staple, and package DMG
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           set -euo pipefail
-          xcrun notarytool submit "$APP_NAME.dmg" \
-            --apple-id "$APPLE_ID" \
-            --password "$APPLE_PASSWORD" \
-            --team-id "$TEAM_ID" \
-            --wait
-          xcrun stapler staple "$APP_NAME.dmg"
+          SIGNED_ZIP="$(find . -name "$APP_NAME-macos-signed.zip" -print -quit)"
+          if [ -z "$SIGNED_ZIP" ]; then
+            echo "Signed zip not found"; find . -maxdepth 3 -name "*.zip" -print; exit 1
+          fi
+
+          rm -rf .notarize && mkdir -p .notarize
+          ditto -x -k "$SIGNED_ZIP" .notarize
+          APP_PATH="$(find .notarize -maxdepth 3 -name "*.app" -print -quit)"
+          if [ -z "$APP_PATH" ]; then echo "No .app in payload"; exit 1; fi
+
+          DMG_ROOT=".dmgroot"; DMG_NAME="$APP_NAME-macos.dmg"
+          rm -rf "$DMG_ROOT" && mkdir -p "$DMG_ROOT"
+          cp -R "$APP_PATH" "$DMG_ROOT/"
+          ln -s /Applications "$DMG_ROOT/Applications"
+          rm -f "$DMG_NAME"
+          hdiutil detach "/Volumes/$APP_NAME" -force || true
+          hdiutil create -volname "$APP_NAME" -srcfolder "$DMG_ROOT" -ov -format UDZO "$DMG_NAME"
+
+          SUBMIT_JSON="$(xcrun notarytool submit "$DMG_NAME" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" --output-format json)"
+          echo "$SUBMIT_JSON"
+          REQUEST_ID="$(echo "$SUBMIT_JSON" | /usr/bin/python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")"
+          echo "Notarization request id: $REQUEST_ID"
+
+          MAX_ATTEMPTS=60; SLEEP_SECONDS=60; ATTEMPT=1; STATUS="Pending"
+          while [ "$ATTEMPT" -le "$MAX_ATTEMPTS" ]; do
+            LOG_JSON="$(xcrun notarytool log "$REQUEST_ID" \
+              --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+              --password "$APPLE_APP_PASSWORD" --output-format json 2>/dev/null || true)"
+            STATUS="Pending"
+            if [ -n "$LOG_JSON" ] && { [[ "$LOG_JSON" == \{* ]] || [[ "$LOG_JSON" == \[* ]]; }; then
+              STATUS="$(/usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("status","Pending"))' <<<"$LOG_JSON")"
+            fi
+            echo "Notarization status ($ATTEMPT/$MAX_ATTEMPTS): $STATUS"
+            [ "$STATUS" = "Accepted" ] && break
+            if [ "$STATUS" = "Invalid" ]; then echo "$LOG_JSON"; exit 1; fi
+            sleep "$SLEEP_SECONDS"; ATTEMPT=$((ATTEMPT + 1))
+          done
+          if [ "$STATUS" != "Accepted" ]; then
+            echo "Notarization did not finish. Request id: $REQUEST_ID"; exit 1
+          fi
+
+          xcrun stapler staple "$APP_PATH"
+          xcrun stapler staple "$DMG_NAME"
+          mv "$DMG_NAME" "$APP_NAME.dmg"
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
