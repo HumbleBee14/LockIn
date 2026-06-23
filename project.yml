@@ -20,6 +20,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.grepguru.lockin
         INFOPLIST_KEY_LSUIElement: NO
         GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_ENTITLEMENTS: App/LockIn.entitlements
     dependencies:
       - target: lockind
         embed: true
