@@ -3,24 +3,11 @@ import ServiceManagement
 
 @main
 struct LockInApp: App {
-    @StateObject private var installer = InstallerService()
-
-    private var previewBypass: Bool {
-        ProcessInfo.processInfo.environment["LOCKIN_PREVIEW"] == "1"
-    }
-
     var body: some Scene {
         WindowGroup {
-            Group {
-                if previewBypass || installer.daemonStatus == .enabled {
-                    RootView()
-                } else {
-                    OnboardingView()
-                }
-            }
-            .frame(minWidth: 760, minHeight: 520)
-            .preferredColorScheme(.dark)
-            .onAppear { installer.refreshStatus() }
+            RootView()
+                .frame(minWidth: 760, minHeight: 520)
+                .preferredColorScheme(.dark)
         }
         .windowStyle(.titleBar)
     }

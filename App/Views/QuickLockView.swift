@@ -3,6 +3,7 @@ import SwiftUI
 struct QuickLockView: View {
     @ObservedObject var store: ScheduleStore
     @ObservedObject var statusModel: StatusViewModel
+    @ObservedObject var gate: InstallGate
 
     @State private var selectedBlockSetId: String?
     @State private var durationMinutes: Int = 60
@@ -102,8 +103,8 @@ struct QuickLockView: View {
         guard let id = selectedBlockSetId,
               let set = store.config.blockSets.first(where: { $0.id == id }),
               !set.domains.isEmpty else { return }
-        starting = true
-        Task {
+        gate.require {
+            starting = true
             _ = await store.commit()
             _ = await statusModel.startQuickLock(blockSetId: id, minutes: durationMinutes)
             await statusModel.refresh()

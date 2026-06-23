@@ -2,7 +2,6 @@ import SwiftUI
 
 struct ActiveLockView: View {
     @ObservedObject var model: StatusViewModel
-    let client: DaemonClient
 
     @State private var now = Date()
     @State private var newDomain = ""

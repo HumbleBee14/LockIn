@@ -3,6 +3,7 @@ import SwiftUI
 struct ScheduleGridView: View {
     @ObservedObject var store: ScheduleStore
     @ObservedObject var statusModel: StatusViewModel
+    @ObservedObject var gate: InstallGate
     @State private var editingRule: Rule?
     @State private var showingEditor = false
 
@@ -22,7 +23,7 @@ struct ScheduleGridView: View {
         }
         .padding(Theme.Spacing.l)
         .sheet(isPresented: $showingEditor) {
-            RuleEditorView(store: store, existing: editingRule) { showingEditor = false }
+            RuleEditorView(store: store, gate: gate, existing: editingRule) { showingEditor = false }
         }
     }
 

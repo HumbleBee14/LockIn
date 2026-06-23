@@ -11,6 +11,17 @@ final class InstallerService: ObservableObject {
     private let daemon = SMAppService.daemon(plistName: "lockind.plist")
     private let agent = SMAppService.agent(plistName: "lockin-agent.plist")
 
+    private var previewBypass: Bool {
+        ProcessInfo.processInfo.environment["LOCKIN_PREVIEW"] == "1"
+    }
+
+    // live check, re-queried at each lock-creating action so a later helper removal is caught
+    func isReady() -> Bool {
+        if previewBypass { return true }
+        refreshStatus()
+        return daemonStatus == .enabled
+    }
+
     var isInstalled: Bool { daemonStatus == .enabled }
     var needsApproval: Bool { daemonStatus == .requiresApproval || agentStatus == .requiresApproval }
 

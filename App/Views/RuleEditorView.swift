@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RuleEditorView: View {
     @ObservedObject var store: ScheduleStore
+    @ObservedObject var gate: InstallGate
     let existing: Rule?
     let onDone: () -> Void
 
@@ -12,8 +13,9 @@ struct RuleEditorView: View {
 
     private let weekdayLabels = ["M", "T", "W", "T", "F", "S", "S"]
 
-    init(store: ScheduleStore, existing: Rule?, onDone: @escaping () -> Void) {
+    init(store: ScheduleStore, gate: InstallGate, existing: Rule?, onDone: @escaping () -> Void) {
         self.store = store
+        self.gate = gate
         self.existing = existing
         self.onDone = onDone
         let cal = Calendar.current
@@ -96,7 +98,8 @@ struct RuleEditorView: View {
                         blockSetId: blockSetId, appBundleIds: [])
         if existing != nil { store.removeRule(id: rule.id) }
         store.addRule(rule)
-        Task { _ = await store.commit() }
         onDone()
+        // arming a schedule needs the engine installed; gate the commit that reaches the daemon
+        gate.require { _ = await store.commit() }
     }
 }
