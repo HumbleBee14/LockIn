@@ -14,6 +14,7 @@ extension BlockController {
             if guardIsExpired(beat) {
                 clearBlocking()
                 clearState()
+                pushClearedSnapshot()
             } else {
                 reassert(domains: beat.appliedDomains)
             }

@@ -85,3 +85,20 @@ These remaining acceptance items need root and real browsers/reboots:
   gui/$UID/com.grepguru.lockin.agent`, confirm websites stay blocked.
 - **pf anchor rename (DECISIONS.md D7)** — after renaming `org.eyebeam` → a LockIn anchor
   in the engine, re-run the Risk 2 canary to confirm detection + teardown still work.
+
+---
+
+## Phase 3 — Daemon→agent snapshot push direction (needs hardware validation)
+
+`AgentBridge.push` opens an `NSXPCConnection(machServiceName: com.grepguru.lockin.agent)` from the
+root daemon to the per-user agent. Apple confirms LaunchDaemon→LaunchAgent NSXPC works, but a root
+daemon reaching a *GUI-session* agent's Mach service is the awkward direction.
+
+- Daemon→agent push delivers (agent receives `updateSnapshot`): `<YES | NO + error>`
+- If NO: **fallback (already designed)** — invert the flow: the agent opens a long-lived connection to
+  the daemon at launch and the daemon pushes over that retained agent-initiated channel. The
+  `AgentBridging` protocol seam makes this swap local to `AgentBridge` — no controller changes.
+- Tested on: macOS `<version>`
+
+App-blocking acceptance (#8): start an ad-hoc block including a test app's bundle ID, launch it,
+confirm force-quit within ~1s while the agent runs.

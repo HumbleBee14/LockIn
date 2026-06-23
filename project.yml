@@ -71,6 +71,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.grepguru.lockin.agentcore
+        SWIFT_OBJC_BRIDGING_HEADER: AgentCore/Agent-Bridging-Header.h
         DEFINES_MODULE: YES
   lockin-agent:
     type: tool

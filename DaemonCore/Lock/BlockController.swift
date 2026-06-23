@@ -4,12 +4,15 @@ public final class BlockController {
     private let store: LockStateStore
     private let clockGuard: ClockGuard
     private let configStore: ConfigStore
+    private let agentBridge: AgentBridging
     private let blocker = WebsiteBlocker()
 
-    init(store: LockStateStore, clockGuard: ClockGuard, configStore: ConfigStore = .shared) {
+    init(store: LockStateStore, clockGuard: ClockGuard, configStore: ConfigStore = .shared,
+         agentBridge: AgentBridging = AgentBridge()) {
         self.store = store
         self.clockGuard = clockGuard
         self.configStore = configStore
+        self.agentBridge = agentBridge
     }
 
     public static func makeSystemController() -> BlockController {
@@ -50,6 +53,7 @@ public final class BlockController {
             appliedDomains: domains, appliedAppBundleIds: appBundleIds, appliedSettings: settings)
         try? store.save(state)
         blocker.apply(domains: domains)
+        agentBridge.push(BlockedAppSnapshot(active: true, bundleIds: appBundleIds))
         return true
     }
 
@@ -114,5 +118,10 @@ public final class BlockController {
             appliedDomains: domains, appliedAppBundleIds: appBundleIds, appliedSettings: settings)
         try? store.save(state)
         blocker.apply(domains: domains)
+        agentBridge.push(BlockedAppSnapshot(active: true, bundleIds: appBundleIds))
+    }
+
+    func pushClearedSnapshot() {
+        agentBridge.push(BlockedAppSnapshot(active: false, bundleIds: []))
     }
 }
