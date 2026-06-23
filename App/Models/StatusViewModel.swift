@@ -9,8 +9,10 @@ final class StatusViewModel: ObservableObject {
 
     var isActive: Bool { status?.active ?? false }
 
+    var canAddDomains: Bool { isActive && !(status?.isAllowlist ?? false) }
+
     var countdownText: String {
-        guard let end = status?.windowEnd else { return "" }
+        guard let end = status?.endsAt else { return "" }
         return countdown(to: end)
     }
 
@@ -23,5 +25,15 @@ final class StatusViewModel: ObservableObject {
 
     func refresh() async {
         status = await client.status()
+    }
+
+    func startQuickLock(blockSetId: String, minutes: Int) async -> Bool {
+        await client.startQuickLock(blockSetId: blockSetId, duration: Double(minutes * 60))
+    }
+
+    func addDomains(_ domains: [String]) async -> Bool {
+        let ok = await client.appendDomains(domains)
+        await refresh()
+        return ok
     }
 }

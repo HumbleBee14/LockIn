@@ -1,8 +1,0 @@
-{
-  "categories": [
-    { "id": "social", "name": "Social Media" },
-    { "id": "entertainment", "name": "Entertainment" },
-    { "id": "shopping", "name": "Shopping" },
-    { "id": "news", "name": "News" }
-  ]
-}

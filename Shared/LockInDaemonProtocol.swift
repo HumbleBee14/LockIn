@@ -4,5 +4,6 @@ import Foundation
     func getVersion(reply: @escaping (String) -> Void)
     func registerSchedule(_ data: Data, reply: @escaping (Bool) -> Void)
     func getStatus(reply: @escaping (Data?) -> Void)
-    func startAdHocBlock(blockSetId: String, durationSeconds: Double, reply: @escaping (Bool) -> Void)
+    func startQuickLock(blockSetId: String, durationSeconds: Double, reply: @escaping (Bool) -> Void)
+    func appendDomainsToActiveBlock(_ domains: [String], reply: @escaping (Bool) -> Void)
 }

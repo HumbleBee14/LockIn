@@ -10,7 +10,9 @@ struct BlockSetEditorView: View {
     @State private var importURL = ""
     @State private var importing = false
     @State private var showingImport = false
-    private let categories = CategoryCatalogLoader.load()
+    @State private var showingNewSet = false
+    @State private var newSetTitle = ""
+    @State private var newSetMode: BlockSetMode = .blocklist
 
     var body: some View {
         HStack(spacing: 0) {
@@ -19,6 +21,7 @@ struct BlockSetEditorView: View {
             editor
         }
         .sheet(isPresented: $showingImport) { importSheet }
+        .sheet(isPresented: $showingNewSet) { newSetSheet }
     }
 
     private var sidebar: some View {
@@ -32,7 +35,7 @@ struct BlockSetEditorView: View {
                     selectedId = set.id
                 } label: {
                     HStack {
-                        Text(set.name).foregroundStyle(Theme.mist)
+                        Text(set.name).foregroundStyle(Theme.mist).lineLimit(1)
                         Spacer()
                         Text("\(set.domains.count)").foregroundStyle(Theme.mistDim).font(Theme.monoFont(11))
                     }
@@ -43,25 +46,45 @@ struct BlockSetEditorView: View {
                 .buttonStyle(.plain)
             }
             Divider().padding(.vertical, Theme.Spacing.s)
-            if !categories.isEmpty {
-                Text("Add a category")
-                    .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.mistDim)
-                ForEach(categories) { category in
-                    Button {
-                        selectedId = category.id
-                        Task { _ = await store.importCategory(category) }
-                    } label: {
-                        Label(category.name, systemImage: "plus.circle")
-                            .font(.system(size: 12))
-                    }
-                    .buttonStyle(.borderless)
-                }
+            Button {
+                newSetTitle = ""; newSetMode = .blocklist; showingNewSet = true
+            } label: {
+                Label("New Block Set", systemImage: "plus.circle")
+                    .font(.system(size: 12))
             }
+            .buttonStyle(.borderless)
             Spacer()
         }
         .frame(width: 200)
         .padding(Theme.Spacing.m)
         .background(Theme.inkBase)
+    }
+
+    private var newSetSheet: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.m) {
+            Text("New Block Set").font(Theme.displayFont(18, .bold))
+            TextField("Name (e.g. Work Distractions)", text: $newSetTitle)
+                .textFieldStyle(.roundedBorder)
+            Picker("Mode", selection: $newSetMode) {
+                Text("Block these sites").tag(BlockSetMode.blocklist)
+                Text("Allow only these sites").tag(BlockSetMode.allowlist)
+            }
+            .pickerStyle(.radioGroup)
+            HStack {
+                Spacer()
+                Button("Cancel") { showingNewSet = false }
+                Button("Create") {
+                    let set = store.createBlockSet(title: newSetTitle, mode: newSetMode)
+                    selectedId = set.id
+                    Task { _ = await store.commit() }
+                    showingNewSet = false
+                }
+                .buttonStyle(.borderedProminent).tint(Theme.ember)
+                .disabled(newSetTitle.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(Theme.Spacing.l)
+        .frame(width: 360)
     }
 
     @ViewBuilder private var editor: some View {
@@ -74,6 +97,13 @@ struct BlockSetEditorView: View {
                     Button { showingImport = true } label: { Label("Import list", systemImage: "square.and.arrow.down") }
                         .buttonStyle(.bordered)
                 }
+                Picker("Mode", selection: Binding(
+                    get: { store.config.blockSets[idx].mode },
+                    set: { store.setMode($0, forBlockSet: id); Task { _ = await store.commit() } })) {
+                    Text("Block these sites").tag(BlockSetMode.blocklist)
+                    Text("Allow only these").tag(BlockSetMode.allowlist)
+                }
+                .pickerStyle(.segmented)
                 HStack {
                     TextField("Add domain (e.g. youtube.com)", text: $newDomain)
                         .textFieldStyle(.roundedBorder)
@@ -86,7 +116,7 @@ struct BlockSetEditorView: View {
                             Text(domain).font(Theme.monoFont(12)).foregroundStyle(Theme.mist)
                             Spacer()
                             Button(role: .destructive) {
-                                store.config.blockSets[idx].domains.removeAll { $0 == domain }
+                                store.removeDomain(domain, fromBlockSet: id)
                                 Task { _ = await store.commit() }
                             } label: { Image(systemName: "minus.circle") }
                                 .buttonStyle(.borderless)

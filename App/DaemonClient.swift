@@ -29,14 +29,23 @@ final class DaemonClient: Sendable {
         }
     }
 
-    func startAdHoc(blockSetId: String, duration: TimeInterval) async -> Bool {
+    func startQuickLock(blockSetId: String, duration: TimeInterval) async -> Bool {
         await withCheckedContinuation { cont in
             let c = connection()
             let proxy = c.remoteObjectProxyWithErrorHandler { _ in cont.resume(returning: false) }
                 as? LockInDaemonProtocol
-            proxy?.startAdHocBlock(blockSetId: blockSetId, durationSeconds: duration) { ok in
+            proxy?.startQuickLock(blockSetId: blockSetId, durationSeconds: duration) { ok in
                 cont.resume(returning: ok)
             }
+        }
+    }
+
+    func appendDomains(_ domains: [String]) async -> Bool {
+        await withCheckedContinuation { cont in
+            let c = connection()
+            let proxy = c.remoteObjectProxyWithErrorHandler { _ in cont.resume(returning: false) }
+                as? LockInDaemonProtocol
+            proxy?.appendDomainsToActiveBlock(domains) { ok in cont.resume(returning: ok) }
         }
     }
 }

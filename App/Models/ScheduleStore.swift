@@ -38,13 +38,23 @@ final class ScheduleStore: ObservableObject {
         persist()
     }
 
-    // creates the category's block set, then fetches its domains from the remote source (nothing hardcoded)
-    func importCategory(_ category: BlockCategory) async -> Bool {
-        addBlockSet(BlockSet(id: category.id, name: category.name, domains: [], appBundleIds: []))
-        guard let urlString = category.sourceURL, let url = URL(string: urlString) else {
-            return await commit()
-        }
-        return await importRemoteList(into: category.id, from: url)
+    func setMode(_ mode: BlockSetMode, forBlockSet id: String) {
+        guard let idx = config.blockSets.firstIndex(where: { $0.id == id }) else { return }
+        config.blockSets[idx].mode = mode
+        persist()
+    }
+
+    func removeDomain(_ domain: String, fromBlockSet id: String) {
+        guard let idx = config.blockSets.firstIndex(where: { $0.id == id }) else { return }
+        config.blockSets[idx].domains.removeAll { $0 == domain }
+        persist()
+    }
+
+    @discardableResult
+    func createBlockSet(title: String, mode: BlockSetMode = .blocklist) -> BlockSet {
+        let set = BlockSet(id: UUID().uuidString, name: title, domains: [], appBundleIds: [], mode: mode)
+        addBlockSet(set)
+        return set
     }
 
     func importDomains(into blockSetId: String, from text: String) {

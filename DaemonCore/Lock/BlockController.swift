@@ -29,32 +29,43 @@ public final class BlockController {
         return true
     }
 
-    func startAdHocBlock(blockSetId: String, durationSeconds: Double) -> Bool {
-        guard let set = persistedConfig().blockSets.first(where: { $0.id == blockSetId }) else {
-            return false
-        }
-        return startAdHoc(blockSetId: blockSetId, durationSeconds: durationSeconds,
-                          domains: set.domains, appBundleIds: set.appBundleIds)
+    func startQuickLock(blockSetId: String, durationSeconds: Double) -> Bool {
+        // a quick lock may start ONLY when nothing is active (the UI enforces this too)
+        if let s = store.load(), s.active { return false }
+        guard let set = persistedConfig().blockSets.first(where: { $0.id == blockSetId }),
+              !set.domains.isEmpty else { return false }
+        let now = Date()
+        let state = LockState(active: true, mode: .adHoc, windowEnd: nil, duration: durationSeconds,
+            anchorWallTime: now, trustedNowAtLastHeartbeat: now, servedElapsedAtLastHeartbeat: 0,
+            clockSuspicious: false, bootSessionUUID: SystemBootSession().uuid,
+            appliedDomains: set.domains, appliedAppBundleIds: set.appBundleIds,
+            appliedSettings: persistedConfig().settings,
+            isAllowlist: set.mode == .allowlist, blockSetTitle: set.name, scheduleRuleId: nil)
+        activate(state)
+        return true
+    }
+
+    // append-only, blocklist-only edit to the active block (the one change allowed mid-lock)
+    func appendDomainsToActiveBlock(_ domains: [String]) -> Bool {
+        guard var s = store.load(), s.active, !s.isAllowlist else { return false }
+        var merged = s.appliedDomains
+        for d in domains where !merged.contains(d) { merged.append(d) }
+        guard merged.count != s.appliedDomains.count else { return true }
+        s.appliedDomains = merged
+        try? store.save(s)
+        blocker.apply(domains: merged, allowlist: false)
+        return true
     }
 
     private func persistedConfig() -> ScheduleConfig {
         configStore.load() ?? ScheduleConfig(rules: [])
     }
 
-    @discardableResult
-    func startAdHoc(blockSetId: String, durationSeconds: Double, domains: [String],
-                    appBundleIds: [String] = []) -> Bool {
-        if let s = store.load(), s.active { return false }
-        let now = Date()
-        let settings = persistedConfig().settings
-        let state = LockState(active: true, mode: .adHoc, windowEnd: nil, duration: durationSeconds,
-            anchorWallTime: now, trustedNowAtLastHeartbeat: now, servedElapsedAtLastHeartbeat: 0,
-            clockSuspicious: false, bootSessionUUID: SystemBootSession().uuid,
-            appliedDomains: domains, appliedAppBundleIds: appBundleIds, appliedSettings: settings)
+    // single-lock activation: write state, apply the block, push the app snapshot
+    private func activate(_ state: LockState) {
         try? store.save(state)
-        blocker.apply(domains: domains)
+        blocker.apply(domains: state.appliedDomains, allowlist: state.isAllowlist)
         pushAppSnapshot(for: state)
-        return true
     }
 
     func currentStatus() -> LockState? {
@@ -62,14 +73,28 @@ public final class BlockController {
     }
 
     public func statusDTO(calendar: Calendar = .current) -> DaemonStatus {
-        let state = store.load()
-        let next = nextTriggerDescription(calendar: calendar)
+        guard let s = store.load(), s.active else {
+            return DaemonStatus(active: false, source: nil, blockSetTitle: nil, isAllowlist: false,
+                endsAt: nil, appliedDomains: [], nextTriggerDescription: nextTriggerDescription(calendar: calendar))
+        }
         return DaemonStatus(
-            active: state?.active ?? false,
-            mode: state?.mode.rawValue,
-            windowEnd: state?.windowEnd,
-            appliedDomains: state?.appliedDomains ?? [],
-            nextTriggerDescription: next)
+            active: true,
+            source: s.mode == .adHoc ? "quick" : "scheduled",
+            blockSetTitle: s.blockSetTitle,
+            isAllowlist: s.isAllowlist,
+            endsAt: endsAt(for: s),
+            appliedDomains: s.appliedDomains,
+            nextTriggerDescription: nil)
+    }
+
+    private func endsAt(for s: LockState) -> Date? {
+        switch s.mode {
+        case .scheduled: return s.windowEnd
+        case .adHoc:
+            guard let d = s.duration else { return nil }
+            let remaining = d - s.servedElapsedAtLastHeartbeat
+            return Date().addingTimeInterval(max(0, remaining))
+        }
     }
 
     private func nextTriggerDescription(calendar: Calendar) -> String? {
@@ -90,7 +115,7 @@ public final class BlockController {
     func guardHeartbeat(_ s: LockState) -> LockState { clockGuard.heartbeat(s) }
     func guardIsExpired(_ s: LockState) -> Bool { clockGuard.isExpired(s) }
     func clearBlocking() { blocker.clear() }
-    func reassert(domains: [String]) { blocker.reassertIfTampered(domains: domains) }
+    func reassert(_ s: LockState) { blocker.reassertIfTampered(domains: s.appliedDomains, allowlist: s.isAllowlist) }
     func currentTrustedWallNow() -> Date {
         if let s = store.load() { return clockGuard.trustedNow(s) }
         return Date()
@@ -106,17 +131,19 @@ public final class BlockController {
         return true
     }
 
-    func startScheduled(rule: Rule, windowEnd: Date?, domains: [String], appBundleIds: [String]) {
-        if let s = store.load(), s.active { return }
+    func startScheduled(rule: Rule, windowEnd: Date?) {
+        // already enforcing THIS rule: nothing to do (don't reset its timer each tick)
+        if let s = store.load(), s.active, s.scheduleRuleId == rule.id { return }
+        guard let set = loadConfig().blockSets.first(where: { $0.id == rule.blockSetId }) else { return }
         let now = Date()
-        let settings = loadConfig().settings
+        // a schedule trigger preempts a quick lock or a different active schedule (latest-active-wins)
         let state = LockState(active: true, mode: .scheduled, windowEnd: windowEnd, duration: nil,
             anchorWallTime: now, trustedNowAtLastHeartbeat: now, servedElapsedAtLastHeartbeat: 0,
             clockSuspicious: false, bootSessionUUID: SystemBootSession().uuid,
-            appliedDomains: domains, appliedAppBundleIds: appBundleIds, appliedSettings: settings)
-        try? store.save(state)
-        blocker.apply(domains: domains)
-        pushAppSnapshot(for: state)
+            appliedDomains: set.domains, appliedAppBundleIds: rule.appBundleIds,
+            appliedSettings: loadConfig().settings,
+            isAllowlist: set.mode == .allowlist, blockSetTitle: set.name, scheduleRuleId: rule.id)
+        activate(state)
     }
 
     // app-blocking off => push an empty list so the agent kills nothing

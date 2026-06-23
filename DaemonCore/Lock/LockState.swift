@@ -16,6 +16,9 @@ struct LockState: Codable, Equatable {
     var appliedDomains: [String]
     var appliedAppBundleIds: [String]
     var appliedSettings: SettingsConfig = SettingsConfig()
+    var isAllowlist: Bool = false
+    var blockSetTitle: String = ""
+    var scheduleRuleId: String?
 }
 
 final class LockStateStore {

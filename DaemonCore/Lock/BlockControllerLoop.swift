@@ -2,11 +2,7 @@ import Foundation
 
 extension BlockController {
     public func applyDecisionIfNeeded(timeResolved: Bool, calendar: Calendar = .current) {
-        guard let state = loadState() else {
-            applyScheduledStartIfDue(calendar: calendar)
-            return
-        }
-        if state.active {
+        if let state = loadState(), state.active {
             // never tear down without a resolved time source
             guard timeResolved else { return }
             let beat = guardHeartbeat(state)
@@ -15,8 +11,11 @@ extension BlockController {
                 clearBlocking()
                 clearState()
                 pushClearedSnapshot()
+                applyScheduledStartIfDue(calendar: calendar)
             } else {
-                reassert(domains: beat.appliedDomains)
+                reassert(beat)
+                // a due schedule preempts the active lock (quick lock, or a different/earlier rule)
+                applyScheduledStartIfDue(calendar: calendar)
             }
         } else {
             applyScheduledStartIfDue(calendar: calendar)
@@ -27,8 +26,6 @@ extension BlockController {
         let now = currentTrustedWallNow()
         let decision = Scheduler.evaluate(loadConfig(), at: now, calendar: calendar)
         guard decision.shouldBlock, let rule = decision.activeRule else { return }
-        let domains = resolveDomains(forBlockSetId: rule.blockSetId)
-        startScheduled(rule: rule, windowEnd: decision.windowEnd, domains: domains,
-                       appBundleIds: rule.appBundleIds)
+        startScheduled(rule: rule, windowEnd: decision.windowEnd)
     }
 }

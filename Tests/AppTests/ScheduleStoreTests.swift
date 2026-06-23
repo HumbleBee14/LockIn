@@ -4,7 +4,7 @@ import XCTest
 @MainActor
 final class ScheduleStoreTests: XCTestCase {
     func testAddAndRemoveRule() {
-        let store = ScheduleStore(client: DaemonClient())
+        let store = ScheduleStore(client: DaemonClient(), config: ScheduleConfig(rules: []))
         let r = Rule(id: "n", weekdays: [1], startHour: 22, startMinute: 0, endHour: 7, endMinute: 0,
                      blockSetId: "social", appBundleIds: [])
         store.addRule(r)
@@ -13,12 +13,12 @@ final class ScheduleStoreTests: XCTestCase {
         XCTAssertEqual(store.config.rules.count, 0)
     }
 
-    func testImportCategoryCreatesNamedBlockSet() async {
-        let store = ScheduleStore(client: DaemonClient())
-        let category = BlockCategory(id: "social", name: "Social Media", sourceURL: nil)
-        _ = await store.importCategory(category)
-        XCTAssertTrue(store.config.blockSets.contains { $0.id == "social" && $0.name == "Social Media" },
-            "importing a category creates its block set; domains are fetched, never hardcoded")
+    func testCreateBlockSetWithFreeTitleAndMode() {
+        let store = ScheduleStore(client: DaemonClient(), config: ScheduleConfig(rules: []))
+        let set = store.createBlockSet(title: "Work Distractions", mode: .allowlist)
+        XCTAssertTrue(store.config.blockSets.contains { $0.id == set.id })
+        XCTAssertEqual(set.name, "Work Distractions")
+        XCTAssertEqual(set.mode, .allowlist)
     }
 
     func testParseDomainListStripsHostsAndComments() {
@@ -37,7 +37,7 @@ final class ScheduleStoreTests: XCTestCase {
     }
 
     func testImportDomainsMergesWithoutDuplicates() {
-        let store = ScheduleStore(client: DaemonClient())
+        let store = ScheduleStore(client: DaemonClient(), config: ScheduleConfig(rules: []))
         store.importDomains(into: "custom", from: "youtube.com\nyoutube.com\nreddit.com")
         let set = store.config.blockSets.first { $0.id == "custom" }
         XCTAssertEqual(set?.domains.sorted(), ["reddit.com", "youtube.com"])

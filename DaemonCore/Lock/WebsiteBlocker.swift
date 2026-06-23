@@ -6,9 +6,9 @@ final class WebsiteBlocker {
         return [apex, "www.\(apex)", "m.\(apex)", "api.\(apex)"]
     }
 
-    func apply(domains: [String]) {
+    func apply(domains: [String], allowlist: Bool) {
         let expanded = domains.flatMap { Self.expand($0) }
-        let manager = BlockManager(asAllowlist: false, allowLocal: true,
+        let manager = BlockManager(asAllowlist: allowlist, allowLocal: true,
                                    includeCommonSubdomains: true, includeLinkedDomains: false)
         manager?.prepareToAddBlock()
         manager?.addBlockEntries(from: expanded)
@@ -25,8 +25,8 @@ final class WebsiteBlocker {
         PacketFilter.blockFoundInPF()
     }
 
-    func reassertIfTampered(domains: [String]) {
+    func reassertIfTampered(domains: [String], allowlist: Bool) {
         // re-apply if a tamper removed the block mid-window
-        if !isApplied() { apply(domains: domains) }
+        if !isApplied() { apply(domains: domains, allowlist: allowlist) }
     }
 }

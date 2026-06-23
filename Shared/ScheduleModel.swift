@@ -17,11 +17,17 @@ struct SettingsConfig: Codable, Equatable {
     var appBlockingEnabled: Bool = true
 }
 
+enum BlockSetMode: String, Codable {
+    case blocklist
+    case allowlist
+}
+
 struct BlockSet: Codable, Equatable {
     var id: String
     var name: String
     var domains: [String]
     var appBundleIds: [String]
+    var mode: BlockSetMode = .blocklist
 }
 
 struct ScheduleConfig: Codable, Equatable {
