@@ -25,16 +25,36 @@ enum DomainListImporter {
         return out
     }
 
+    // one domain per line, sorted — round-trips back through parse()
+    static func export(_ domains: [String]) -> String {
+        domains.sorted().joined(separator: "\n") + "\n"
+    }
+
     static func normalize(_ raw: String) -> String? {
         var token = raw.trimmingCharacters(in: .whitespaces)
         if let hash = token.firstIndex(of: "#") { token = String(token[..<hash]) }
         token = token.trimmingCharacters(in: .whitespaces)
         token = token.replacingOccurrences(of: "https://", with: "")
         token = token.replacingOccurrences(of: "http://", with: "")
+        if let at = token.lastIndex(of: "@") { token = String(token[token.index(after: at)...]) }
         if let slash = token.firstIndex(of: "/") { token = String(token[..<slash]) }
         if let colon = token.firstIndex(of: ":") { token = String(token[..<colon]) }
+        if token.hasSuffix(".") { token = String(token.dropLast()) }
         token = token.trimmingCharacters(in: .whitespaces).lowercased()
-        return token.contains(".") ? token : nil
+        return isValidDomain(token) ? token : nil
+    }
+
+    static func isValidDomain(_ s: String) -> Bool {
+        guard s.count >= 3, s.count <= 253, s.contains(".") else { return false }
+        let labels = s.split(separator: ".", omittingEmptySubsequences: false)
+        guard labels.count >= 2 else { return false }
+        for label in labels {
+            guard (1...63).contains(label.count) else { return false }
+            guard !label.hasPrefix("-"), !label.hasSuffix("-") else { return false }
+            for ch in label where !(ch.isLetter || ch.isNumber || ch == "-") { return false }
+        }
+        guard let tld = labels.last, tld.allSatisfy({ $0.isLetter }) else { return false }
+        return true
     }
 }
 

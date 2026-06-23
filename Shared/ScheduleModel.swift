@@ -1,5 +1,9 @@
 import Foundation
 
+enum BlockLimits {
+    static let maxActiveDomains = 50_000
+}
+
 struct Rule: Codable, Equatable {
     var id: String
     var weekdays: [Int]

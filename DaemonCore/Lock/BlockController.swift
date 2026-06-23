@@ -29,18 +29,35 @@ public final class BlockController {
         return true
     }
 
-    func startQuickLock(blockSetId: String, durationSeconds: Double) -> Bool {
+    func startQuickLock(blockSetIds: [String], durationSeconds: Double) -> Bool {
         // a quick lock may start ONLY when nothing is active (the UI enforces this too)
         if let s = store.load(), s.active { return false }
-        guard let set = persistedConfig().blockSets.first(where: { $0.id == blockSetId }),
-              !set.domains.isEmpty else { return false }
+        let config = persistedConfig()
+        let sets = blockSetIds.compactMap { id in config.blockSets.first { $0.id == id } }
+        guard let first = sets.first else { return false }
+        // all selected sets must share one mode; mixing allow/block is rejected
+        guard sets.allSatisfy({ $0.mode == first.mode }) else { return false }
+
+        var domains: [String] = []
+        var apps: [String] = []
+        var seenD = Set<String>(), seenA = Set<String>()
+        for set in sets {
+            for d in set.domains where seenD.insert(d).inserted { domains.append(d) }
+            for a in set.appBundleIds where seenA.insert(a).inserted { apps.append(a) }
+        }
+        guard !domains.isEmpty else { return false }
+        if domains.count > BlockLimits.maxActiveDomains {
+            domains = Array(domains.prefix(BlockLimits.maxActiveDomains))
+        }
+
+        let title = sets.count == 1 ? first.name : "\(first.name) +\(sets.count - 1)"
         let now = Date()
         let state = LockState(active: true, mode: .adHoc, windowEnd: nil, duration: durationSeconds,
             anchorWallTime: now, trustedNowAtLastHeartbeat: now, servedElapsedAtLastHeartbeat: 0,
             clockSuspicious: false, bootSessionUUID: SystemBootSession().uuid,
-            appliedDomains: set.domains, appliedAppBundleIds: set.appBundleIds,
-            appliedSettings: persistedConfig().settings,
-            isAllowlist: set.mode == .allowlist, blockSetId: set.id, blockSetTitle: set.name, scheduleRuleId: nil)
+            appliedDomains: domains, appliedAppBundleIds: apps,
+            appliedSettings: config.settings,
+            isAllowlist: first.mode == .allowlist, blockSetId: first.id, blockSetTitle: title, scheduleRuleId: nil)
         activate(state)
         return true
     }

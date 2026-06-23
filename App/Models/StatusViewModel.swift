@@ -35,8 +35,8 @@ final class StatusViewModel: ObservableObject {
         status = await client.status()
     }
 
-    func startQuickLock(blockSetId: String, minutes: Int) async -> Bool {
-        await client.startQuickLock(blockSetId: blockSetId, duration: Double(minutes * 60))
+    func startQuickLock(blockSetIds: [String], minutes: Int) async -> Bool {
+        await client.startQuickLock(blockSetIds: blockSetIds, duration: Double(minutes * 60))
     }
 
     func addDomains(_ domains: [String], persistingTo store: ScheduleStore?) async -> Bool {

@@ -15,6 +15,7 @@ struct BlockSetEditorView: View {
     @State private var newSetMode: BlockSetMode = .blocklist
     @State private var hoveredId: String?
     @State private var pendingDelete: BlockSet?
+    @State private var search = ""
 
     var body: some View {
         HStack(spacing: 0) {
@@ -142,6 +143,9 @@ struct BlockSetEditorView: View {
                     Text(store.config.blockSets[idx].name)
                         .font(Theme.displayFont(20, .bold)).foregroundStyle(Theme.mist)
                     Spacer()
+                    Button { exportSet(idx) } label: { Label("Export", systemImage: "square.and.arrow.up") }
+                        .buttonStyle(.bordered)
+                        .disabled(store.config.blockSets[idx].domains.isEmpty)
                     Button { showingImport = true } label: { Label("Import list", systemImage: "square.and.arrow.down") }
                         .buttonStyle(.bordered)
                 }
@@ -160,8 +164,31 @@ struct BlockSetEditorView: View {
                         .onSubmit { addDomain(idx) }
                     Button("Add") { addDomain(idx) }.tint(Theme.ember)
                 }
+
+                let domains = store.config.blockSets[idx].domains
+                HStack {
+                    Image(systemName: "magnifyingglass").font(.system(size: 11)).foregroundStyle(Theme.mistDim)
+                    TextField("Search this list", text: $search)
+                        .textFieldStyle(.plain)
+                    if !search.isEmpty {
+                        Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }
+                            .buttonStyle(.borderless).foregroundStyle(Theme.mistDim)
+                    }
+                    Spacer()
+                    Text("\(domains.count) site\(domains.count == 1 ? "" : "s")")
+                        .font(.system(size: 11)).foregroundStyle(Theme.mistDim)
+                }
+                .padding(.horizontal, Theme.Spacing.s).padding(.vertical, 6)
+                .background(Theme.inkSurface)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                let filtered = filteredDomains(domains)
+                if !search.isEmpty && filtered.isEmpty {
+                    Text("“\(search.trimmingCharacters(in: .whitespaces).lowercased())” is not in this list.")
+                        .font(.system(size: 12)).foregroundStyle(Theme.mistDim)
+                }
                 List {
-                    ForEach(store.config.blockSets[idx].domains, id: \.self) { domain in
+                    ForEach(filtered, id: \.self) { domain in
                         HStack {
                             Text(domain).font(Theme.monoFont(12)).foregroundStyle(Theme.mist)
                             Spacer()
@@ -222,6 +249,21 @@ struct BlockSetEditorView: View {
         }
         .padding(Theme.Spacing.l)
         .frame(width: 420)
+    }
+
+    private func filteredDomains(_ domains: [String]) -> [String] {
+        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
+        return q.isEmpty ? domains : domains.filter { $0.contains(q) }
+    }
+
+    private func exportSet(_ idx: Int) {
+        let set = store.config.blockSets[idx]
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.plainText]
+        panel.nameFieldStringValue = "\(set.name).txt"
+        if panel.runModal() == .OK, let url = panel.url {
+            try? DomainListImporter.export(set.domains).write(to: url, atomically: true, encoding: .utf8)
+        }
     }
 
     private func dismissImport() {

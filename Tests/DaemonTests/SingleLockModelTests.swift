@@ -22,7 +22,7 @@ final class SingleLockModelTests: XCTestCase {
     func testQuickLockCarriesAllowlistMode() throws {
         let set = BlockSet(id: "a", name: "Allow Work", domains: ["gmail.com"], appBundleIds: [], mode: .allowlist)
         let (c, url, cfg) = try controller(ScheduleConfig(rules: [], blockSets: [set]), "allow")
-        XCTAssertTrue(c.startQuickLock(blockSetId: "a", durationSeconds: 60))
+        XCTAssertTrue(c.startQuickLock(blockSetIds: ["a"], durationSeconds: 60))
         XCTAssertEqual(c.currentStatus()?.isAllowlist, true)
         XCTAssertEqual(c.currentStatus()?.blockSetTitle, "Allow Work")
         try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg)
@@ -31,7 +31,7 @@ final class SingleLockModelTests: XCTestCase {
     func testAppendRejectedInAllowlistMode() throws {
         let set = BlockSet(id: "a", name: "Allow", domains: ["gmail.com"], appBundleIds: [], mode: .allowlist)
         let (c, url, cfg) = try controller(ScheduleConfig(rules: [], blockSets: [set]), "appall")
-        _ = c.startQuickLock(blockSetId: "a", durationSeconds: 60)
+        _ = c.startQuickLock(blockSetIds: ["a"], durationSeconds: 60)
         XCTAssertFalse(c.appendDomainsToActiveBlock(["evil.com"]),
             "appending to an allowlist would widen access; must be rejected")
         try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg)
@@ -40,9 +40,28 @@ final class SingleLockModelTests: XCTestCase {
     func testAppendAddsToActiveBlocklist() throws {
         let set = BlockSet(id: "b", name: "Block", domains: ["youtube.com"], appBundleIds: [], mode: .blocklist)
         let (c, url, cfg) = try controller(ScheduleConfig(rules: [], blockSets: [set]), "appblock")
-        _ = c.startQuickLock(blockSetId: "b", durationSeconds: 60)
+        _ = c.startQuickLock(blockSetIds: ["b"], durationSeconds: 60)
         XCTAssertTrue(c.appendDomainsToActiveBlock(["reddit.com"]))
         XCTAssertEqual(c.currentStatus()?.appliedDomains.contains("reddit.com"), true)
+        try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg)
+    }
+
+    func testMultiSetCombinesAndDedupes() throws {
+        let a = BlockSet(id: "a", name: "A", domains: ["youtube.com", "reddit.com"], appBundleIds: [], mode: .blocklist)
+        let b = BlockSet(id: "b", name: "B", domains: ["reddit.com", "x.com"], appBundleIds: [], mode: .blocklist)
+        let (c, url, cfg) = try controller(ScheduleConfig(rules: [], blockSets: [a, b]), "multi")
+        XCTAssertTrue(c.startQuickLock(blockSetIds: ["a", "b"], durationSeconds: 60))
+        let applied = Set(c.currentStatus()?.appliedDomains ?? [])
+        XCTAssertEqual(applied, ["youtube.com", "reddit.com", "x.com"])
+        try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg)
+    }
+
+    func testMultiSetRejectsMixedModes() throws {
+        let block = BlockSet(id: "a", name: "A", domains: ["youtube.com"], appBundleIds: [], mode: .blocklist)
+        let allow = BlockSet(id: "b", name: "B", domains: ["gmail.com"], appBundleIds: [], mode: .allowlist)
+        let (c, url, cfg) = try controller(ScheduleConfig(rules: [], blockSets: [block, allow]), "mixed")
+        XCTAssertFalse(c.startQuickLock(blockSetIds: ["a", "b"], durationSeconds: 60),
+            "mixing allowlist and blocklist in one lock must be rejected")
         try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg)
     }
 
@@ -56,7 +75,7 @@ final class SingleLockModelTests: XCTestCase {
                         endHour: 23, endMinute: 59, blockSetId: "s", appBundleIds: [])
         let (c, url, cfg) = try controller(
             ScheduleConfig(rules: [rule], blockSets: [quick, schedSet]), "preempt")
-        XCTAssertTrue(c.startQuickLock(blockSetId: "q", durationSeconds: 3600))
+        XCTAssertTrue(c.startQuickLock(blockSetIds: ["q"], durationSeconds: 3600))
         XCTAssertEqual(c.currentStatus()?.mode, .adHoc)
         c.applyDecisionIfNeeded(timeResolved: true, calendar: cal)
         XCTAssertEqual(c.currentStatus()?.mode, .scheduled,

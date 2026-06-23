@@ -29,12 +29,12 @@ final class DaemonClient: Sendable {
         }
     }
 
-    func startQuickLock(blockSetId: String, duration: TimeInterval) async -> Bool {
+    func startQuickLock(blockSetIds: [String], duration: TimeInterval) async -> Bool {
         await withCheckedContinuation { cont in
             let c = connection()
             let proxy = c.remoteObjectProxyWithErrorHandler { _ in cont.resume(returning: false) }
                 as? LockInDaemonProtocol
-            proxy?.startQuickLock(blockSetId: blockSetId, durationSeconds: duration) { ok in
+            proxy?.startQuickLock(blockSetIds: blockSetIds, durationSeconds: duration) { ok in
                 cont.resume(returning: ok)
             }
         }
