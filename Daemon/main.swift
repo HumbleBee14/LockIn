@@ -1,4 +1,7 @@
 import Foundation
+import LockInDaemonCore
 
-FileHandle.standardError.write(Data("lockind starting\n".utf8))
+let listener = DaemonListener()
+listener.start()
+FileHandle.standardError.write(Data("lockind listening\n".utf8))
 RunLoop.main.run()

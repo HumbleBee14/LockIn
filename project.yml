@@ -29,10 +29,21 @@ targets:
         embed: true
         copy:
           destination: executables
+  LockInDaemonCore:
+    type: library.static
+    platform: macOS
+    sources: [DaemonCore, Shared]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.grepguru.lockin.daemoncore
+        SWIFT_OBJC_BRIDGING_HEADER: DaemonCore/Engine-Bridging-Header.h
+        DEFINES_MODULE: YES
   lockind:
     type: tool
     platform: macOS
-    sources: [Daemon, Shared]
+    sources: [Daemon]
+    dependencies:
+      - target: LockInDaemonCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.grepguru.lockin.daemon
@@ -48,4 +59,15 @@ targets:
     platform: macOS
     sources: [Tests/DaemonTests]
     dependencies:
-      - target: lockind
+      - target: LockInDaemonCore
+schemes:
+  LockIn:
+    build:
+      targets:
+        LockIn: all
+        lockind: all
+        lockin-agent: all
+    test:
+      targets:
+        - DaemonTests
+      gatherCoverageData: false

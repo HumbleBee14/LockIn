@@ -1,5 +1,5 @@
 import XCTest
-@testable import lockind
+@testable import LockInDaemonCore
 
 final class PlaceholderTests: XCTestCase {
     func testVersionPresent() {
