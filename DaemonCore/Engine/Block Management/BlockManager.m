@@ -252,6 +252,8 @@ BOOL appendMode = NO;
 
 	[hostBlockerSet deleteBackupHostsFile];
 
+	[SCHelperToolUtilities clearOSDNSCache];
+
 	return clearedSuccessfully;
 }
 
@@ -288,6 +290,8 @@ BOOL appendMode = NO;
 			NSLog(@"INFO: Firewall rules successfully cleared.");
 		}
 	}
+
+	[SCHelperToolUtilities clearOSDNSCache];
 
 	return clearedSuccessfully;
 }

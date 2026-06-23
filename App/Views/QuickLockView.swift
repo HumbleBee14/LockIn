@@ -7,7 +7,6 @@ struct QuickLockView: View {
     @ObservedObject var draft: QuickLockDraft
 
     @State private var starting = false
-    @State private var picking = false
 
     private let presets: [(String, Int)] = [
         ("30 min", 30), ("1 hour", 60), ("2 hours", 120),
@@ -28,14 +27,10 @@ struct QuickLockView: View {
                         .font(.system(size: 13)).foregroundStyle(Theme.mistDim)
                 }
 
-                if store.config.blockSets.isEmpty {
-                    emptyState
-                } else {
-                    blockSetPicker
-                    durationPicker
-                    startButton
-                    Disclosures.cannotCancel
-                }
+                blockSetPicker
+                durationPicker
+                startButton
+                Disclosures.cannotCancel
             }
             .frame(maxWidth: 560)
             .frame(maxWidth: .infinity, alignment: .center)
@@ -44,83 +39,12 @@ struct QuickLockView: View {
         .scrollIndicators(.hidden)
     }
 
-    private var emptyState: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-            Text("No block sets yet.").font(.system(size: 13)).foregroundStyle(Theme.mistDim)
-            Text("Create one in the Block Sets tab, then start a quick lock.")
-                .font(.system(size: 12)).foregroundStyle(Theme.mistDim)
-        }
-        .card()
-    }
-
-    private var selectedSet: BlockSet? {
-        store.config.blockSets.first { $0.id == draft.selectedBlockSetId }
-    }
-
     private var blockSetPicker: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.s) {
             Text("What to block").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.mistDim)
-            Button { picking = true } label: {
-                HStack {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(selectedSet?.name ?? "Choose a block set")
-                            .foregroundStyle(selectedSet == nil ? Theme.mistDim : Theme.mist)
-                        if let set = selectedSet {
-                            Text(subtitle(set))
-                                .font(.system(size: 11)).foregroundStyle(Theme.mistDim)
-                        }
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11)).foregroundStyle(Theme.mistDim)
-                }
-                .padding(Theme.Spacing.m)
-                .background(Theme.inkSurface)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .popover(isPresented: $picking, arrowEdge: .bottom) { pickerPopover }
+            BlockSetPicker(blockSets: store.config.blockSets, selectedId: $draft.selectedBlockSetId)
         }
         .frame(maxWidth: .infinity)
-    }
-
-    private func subtitle(_ set: BlockSet) -> String {
-        "\(set.mode == .allowlist ? "Allowlist" : "Blocklist") · \(set.domains.count) site\(set.domains.count == 1 ? "" : "s")"
-    }
-
-    private var pickerPopover: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Choose a block set")
-                .font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.mistDim)
-                .padding(.horizontal, Theme.Spacing.m).padding(.top, Theme.Spacing.m).padding(.bottom, Theme.Spacing.xs)
-            ScrollView {
-                VStack(spacing: 0) {
-                    ForEach(store.config.blockSets, id: \.id) { set in
-                        let on = draft.selectedBlockSetId == set.id
-                        Button {
-                            draft.selectedBlockSetId = set.id
-                            picking = false
-                        } label: {
-                            HStack(spacing: Theme.Spacing.s) {
-                                Image(systemName: on ? "largecircle.fill.circle" : "circle")
-                                    .foregroundStyle(on ? Theme.ember : Theme.mistDim)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(set.name).foregroundStyle(Theme.mist)
-                                    Text(subtitle(set)).font(.system(size: 11)).foregroundStyle(Theme.mistDim)
-                                }
-                                Spacer()
-                            }
-                            .padding(.vertical, 8).padding(.horizontal, Theme.Spacing.m)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-            .frame(maxHeight: store.config.blockSets.count > 4 ? 220 : nil)
-            .padding(.bottom, Theme.Spacing.xs)
-        }
-        .frame(width: 300)
     }
 
     private var durationPicker: some View {

@@ -63,15 +63,11 @@ struct RuleEditorView: View {
             }
             .datePickerStyle(.field)
 
-            if store.config.blockSets.isEmpty {
-                Text("Create a block set first (Block Sets tab).")
-                    .font(.system(size: 12)).foregroundStyle(Theme.mistDim)
-            } else {
-                Picker("Block set", selection: $blockSetId) {
-                    ForEach(store.config.blockSets, id: \.id) { set in
-                        Text(set.name).tag(set.id)
-                    }
-                }
+            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                Text("Block set").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.mistDim)
+                BlockSetPicker(blockSets: store.config.blockSets, selectedId: Binding(
+                    get: { blockSetId.isEmpty ? nil : blockSetId },
+                    set: { blockSetId = $0 ?? "" }))
             }
 
             HStack {
@@ -80,7 +76,7 @@ struct RuleEditorView: View {
                 Button("Save") { save() }
                     .buttonStyle(.borderedProminent)
                     .tint(Theme.ember)
-                    .disabled(weekdays.isEmpty)
+                    .disabled(weekdays.isEmpty || blockSetId.isEmpty)
             }
         }
         .padding(Theme.Spacing.l)

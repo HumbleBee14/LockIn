@@ -42,17 +42,49 @@ struct RootView: View {
     }
 
     private var splitView: some View {
-        NavigationSplitView {
-            List(Section.allCases, selection: $selection) { section in
-                Label(section.rawValue, systemImage: section.icon).tag(section)
-            }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-            .listStyle(.sidebar)
-        } detail: {
+        HStack(spacing: 0) {
+            sidebar
+            Divider()
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Theme.inkBase)
         }
+    }
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(Section.allCases) { section in
+                sidebarItem(section)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, Theme.Spacing.s)
+        .padding(.top, Theme.Spacing.m)
+        .frame(width: 200)
+        .frame(maxHeight: .infinity)
+        .background(Theme.inkBase)
+    }
+
+    private func sidebarItem(_ section: Section) -> some View {
+        let on = selection == section
+        return Button {
+            selection = section
+        } label: {
+            HStack(spacing: Theme.Spacing.s) {
+                Image(systemName: section.icon)
+                    .frame(width: 18)
+                    .foregroundStyle(on ? Theme.ember : Theme.mistDim)
+                Text(section.rawValue)
+                    .foregroundStyle(on ? Theme.mist : Theme.mistDim)
+                Spacer()
+            }
+            .font(.system(size: 13, weight: on ? .semibold : .regular))
+            .padding(.vertical, 7).padding(.horizontal, Theme.Spacing.s)
+            .background(on ? Theme.inkRaised : .clear)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder private var detail: some View {
