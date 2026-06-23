@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ActiveLockView: View {
     @ObservedObject var model: StatusViewModel
+    @ObservedObject var store: ScheduleStore
 
     @State private var now = Date()
     @State private var newDomain = ""
@@ -39,7 +40,11 @@ struct ActiveLockView: View {
         return model.countdown(to: end)
     }
 
-    private var caption: String { "until your block ends" }
+    private var caption: String {
+        guard let end = model.status?.endsAt else { return "until your block ends" }
+        _ = now
+        return "ends at \(model.endTimeString(end))"
+    }
 
     private var identity: String {
         let source = model.status?.source == "quick" ? "Quick Lock" : "Scheduled"
@@ -66,7 +71,7 @@ struct ActiveLockView: View {
         let parsed = ScheduleStore.parseDomainList(newDomain)
         guard !parsed.isEmpty else { return }
         newDomain = ""
-        Task { _ = await model.addDomains(parsed) }
+        Task { _ = await model.addDomains(parsed, persistingTo: store) }
     }
 }
 

@@ -44,6 +44,14 @@ final class ScheduleStore: ObservableObject {
         persist()
     }
 
+    func appendDomains(_ domains: [String], toBlockSet id: String) {
+        guard let idx = config.blockSets.firstIndex(where: { $0.id == id }) else { return }
+        for d in domains where !config.blockSets[idx].domains.contains(d) {
+            config.blockSets[idx].domains.append(d)
+        }
+        persist()
+    }
+
     func removeDomain(_ domain: String, fromBlockSet id: String) {
         guard let idx = config.blockSets.firstIndex(where: { $0.id == id }) else { return }
         config.blockSets[idx].domains.removeAll { $0 == domain }

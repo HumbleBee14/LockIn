@@ -20,7 +20,15 @@ final class StatusViewModel: ObservableObject {
         let remaining = max(0, Int(end.timeIntervalSinceNow))
         let h = remaining / 3600
         let m = (remaining % 3600) / 60
-        return "\(h)h \(m)m"
+        let s = remaining % 60
+        return String(format: "%d:%02d:%02d", h, m, s)
+    }
+
+    func endTimeString(_ end: Date) -> String {
+        let f = DateFormatter()
+        f.locale = .current
+        f.dateFormat = "HH:mm:ss"
+        return f.string(from: end)
     }
 
     func refresh() async {
@@ -31,8 +39,12 @@ final class StatusViewModel: ObservableObject {
         await client.startQuickLock(blockSetId: blockSetId, duration: Double(minutes * 60))
     }
 
-    func addDomains(_ domains: [String]) async -> Bool {
+    func addDomains(_ domains: [String], persistingTo store: ScheduleStore?) async -> Bool {
         let ok = await client.appendDomains(domains)
+        if ok, let store, let id = status?.blockSetId, !id.isEmpty {
+            store.appendDomains(domains, toBlockSet: id)
+            _ = await store.commit()
+        }
         await refresh()
         return ok
     }

@@ -4,11 +4,8 @@ struct QuickLockView: View {
     @ObservedObject var store: ScheduleStore
     @ObservedObject var statusModel: StatusViewModel
     @ObservedObject var gate: InstallGate
+    @ObservedObject var draft: QuickLockDraft
 
-    @State private var selectedBlockSetId: String?
-    @State private var durationMinutes: Int = 60
-    @State private var customMode = false
-    @State private var customMinutes: Double = 60
     @State private var starting = false
     @State private var picking = false
 
@@ -19,9 +16,7 @@ struct QuickLockView: View {
 
     private let maxMinutes = 23.0 * 60
 
-    private var effectiveMinutes: Int {
-        customMode ? Int(customMinutes.rounded()) : durationMinutes
-    }
+    private var effectiveMinutes: Int { draft.effectiveMinutes }
 
     var body: some View {
         ScrollView {
@@ -59,7 +54,7 @@ struct QuickLockView: View {
     }
 
     private var selectedSet: BlockSet? {
-        store.config.blockSets.first { $0.id == selectedBlockSetId }
+        store.config.blockSets.first { $0.id == draft.selectedBlockSetId }
     }
 
     private var blockSetPicker: some View {
@@ -101,9 +96,9 @@ struct QuickLockView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     ForEach(store.config.blockSets, id: \.id) { set in
-                        let on = selectedBlockSetId == set.id
+                        let on = draft.selectedBlockSetId == set.id
                         Button {
-                            selectedBlockSetId = set.id
+                            draft.selectedBlockSetId = set.id
                             picking = false
                         } label: {
                             HStack(spacing: Theme.Spacing.s) {
@@ -133,13 +128,13 @@ struct QuickLockView: View {
             Text("For how long").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.mistDim)
             HStack(spacing: Theme.Spacing.xs) {
                 ForEach(presets, id: \.1) { preset in
-                    durationChip(preset.0, selected: !customMode && durationMinutes == preset.1) {
-                        customMode = false; durationMinutes = preset.1
+                    durationChip(preset.0, selected: !draft.customMode && draft.durationMinutes == preset.1) {
+                        draft.customMode = false; draft.durationMinutes = preset.1
                     }
                 }
-                durationChip("Custom", selected: customMode) { customMode = true }
+                durationChip("Custom", selected: draft.customMode) { draft.customMode = true }
             }
-            if customMode { customSlider }
+            if draft.customMode { customSlider }
         }
         .frame(maxWidth: .infinity)
     }
@@ -164,7 +159,7 @@ struct QuickLockView: View {
                 Spacer()
                 Text(customLabel).font(Theme.monoFont(13, .semibold)).foregroundStyle(Theme.ember)
             }
-            Slider(value: $customMinutes, in: 1...maxMinutes).tint(Theme.ember)
+            Slider(value: $draft.customMinutes, in: 1...maxMinutes).tint(Theme.ember)
         }
         .padding(.top, Theme.Spacing.xs)
     }
@@ -197,11 +192,11 @@ struct QuickLockView: View {
     }
 
     private var canStart: Bool {
-        selectedBlockSetId != nil && !starting
+        draft.selectedBlockSetId != nil && !starting
     }
 
     private func start() {
-        guard let id = selectedBlockSetId,
+        guard let id = draft.selectedBlockSetId,
               let set = store.config.blockSets.first(where: { $0.id == id }),
               !set.domains.isEmpty else { return }
         gate.require {

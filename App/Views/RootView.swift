@@ -22,12 +22,13 @@ struct RootView: View {
     @StateObject private var store = ScheduleStore(client: DaemonClient())
     @StateObject private var statusModel = StatusViewModel(client: DaemonClient())
     @StateObject private var gate = InstallGate()
+    @StateObject private var quickLockDraft = QuickLockDraft()
     private let poll = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
         Group {
             if statusModel.isActive {
-                ActiveLockView(model: statusModel)
+                ActiveLockView(model: statusModel, store: store)
             } else {
                 splitView
             }
@@ -56,7 +57,7 @@ struct RootView: View {
 
     @ViewBuilder private var detail: some View {
         switch selection {
-        case .quickLock: QuickLockView(store: store, statusModel: statusModel, gate: gate)
+        case .quickLock: QuickLockView(store: store, statusModel: statusModel, gate: gate, draft: quickLockDraft)
         case .schedule: ScheduleGridView(store: store, statusModel: statusModel, gate: gate)
         case .blockSets: BlockSetEditorView(store: store)
         case .settings: SettingsView(store: store)

@@ -26,6 +26,7 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #import "HostFileBlockerSet.h"
+#import "SCHelperToolUtilities.h"
 
 @implementation BlockManager
 
@@ -124,6 +125,8 @@ BOOL appendMode = NO;
 	}
 
 	[pf startBlock];
+
+	[SCHelperToolUtilities clearOSDNSCache];
 }
 
 - (void)enqueueBlockEntry:(SCBlockEntry*)entry {

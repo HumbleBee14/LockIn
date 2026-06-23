@@ -40,7 +40,7 @@ public final class BlockController {
             clockSuspicious: false, bootSessionUUID: SystemBootSession().uuid,
             appliedDomains: set.domains, appliedAppBundleIds: set.appBundleIds,
             appliedSettings: persistedConfig().settings,
-            isAllowlist: set.mode == .allowlist, blockSetTitle: set.name, scheduleRuleId: nil)
+            isAllowlist: set.mode == .allowlist, blockSetId: set.id, blockSetTitle: set.name, scheduleRuleId: nil)
         activate(state)
         return true
     }
@@ -80,6 +80,7 @@ public final class BlockController {
         return DaemonStatus(
             active: true,
             source: s.mode == .adHoc ? "quick" : "scheduled",
+            blockSetId: s.blockSetId,
             blockSetTitle: s.blockSetTitle,
             isAllowlist: s.isAllowlist,
             endsAt: endsAt(for: s),
