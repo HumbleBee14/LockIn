@@ -1,6 +1,6 @@
 import Foundation
 
-final class DaemonClient {
+final class DaemonClient: Sendable {
     private func connection() -> NSXPCConnection {
         let c = NSXPCConnection(machServiceName: XPCRequirements.daemonServiceName)
         c.remoteObjectInterface = NSXPCInterface(with: LockInDaemonProtocol.self)
