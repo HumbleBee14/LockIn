@@ -16,6 +16,25 @@ enum Scheduler {
         return Decision(shouldBlock: false, activeRule: nil, windowEnd: nil)
     }
 
+    static func nextStart(_ config: ScheduleConfig, after now: Date, calendar: Calendar) -> Date? {
+        var earliest: Date?
+        for rule in config.rules {
+            let startMin = rule.startHour * 60 + rule.startMinute
+            for dayOffset in 0...7 {
+                guard let day = calendar.date(byAdding: .day, value: dayOffset, to: now) else { continue }
+                let dayStart = calendar.startOfDay(for: day)
+                guard let candidate = calendar.date(byAdding: .minute, value: startMin, to: dayStart),
+                      candidate > now else { continue }
+                let wd = calendar.component(.weekday, from: candidate)
+                let weekdayMon1 = ((wd + 5) % 7) + 1
+                guard rule.weekdays.contains(weekdayMon1) else { continue }
+                if earliest == nil || candidate < earliest! { earliest = candidate }
+                break
+            }
+        }
+        return earliest
+    }
+
     private static func activeWindowEnd(_ rule: Rule, at now: Date, calendar: Calendar) -> Date? {
         let comps = calendar.dateComponents([.year, .month, .day, .hour, .minute, .weekday], from: now)
         guard let hour = comps.hour, let minute = comps.minute, let wd = comps.weekday else { return nil }

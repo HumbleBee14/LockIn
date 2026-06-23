@@ -57,6 +57,28 @@ public final class BlockController {
         store.load()
     }
 
+    public func statusDTO(calendar: Calendar = .current) -> DaemonStatus {
+        let state = store.load()
+        let next = nextTriggerDescription(calendar: calendar)
+        return DaemonStatus(
+            active: state?.active ?? false,
+            mode: state?.mode.rawValue,
+            windowEnd: state?.windowEnd,
+            appliedDomains: state?.appliedDomains ?? [],
+            nextTriggerDescription: next)
+    }
+
+    private func nextTriggerDescription(calendar: Calendar) -> String? {
+        let config = loadConfig()
+        guard let next = Scheduler.nextStart(config, after: Date(), calendar: calendar) else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        formatter.doesRelativeDateFormatting = true
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+        return formatter.string(from: next)
+    }
+
     func loadState() -> LockState? { store.load() }
     func saveState(_ s: LockState) { try? store.save(s) }
     func clearState() { try? store.clear() }

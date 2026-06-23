@@ -55,15 +55,15 @@ final class DaemonXPC: NSObject, LockInDaemonProtocol {
     }
 
     func registerSchedule(_ data: Data, reply: @escaping (Bool) -> Void) {
-        guard let controller, let config = try? PropertyListDecoder().decode(ScheduleConfig.self, from: data) else {
+        guard let controller, let config = try? JSONDecoder().decode(ScheduleConfig.self, from: data) else {
             reply(false); return
         }
         reply(controller.registerSchedule(config))
     }
 
     func getStatus(reply: @escaping (Data?) -> Void) {
-        guard let state = controller?.currentStatus() else { reply(nil); return }
-        reply(try? PropertyListEncoder().encode(state))
+        guard let controller else { reply(nil); return }
+        reply(try? JSONEncoder().encode(controller.statusDTO()))
     }
 
     func startAdHocBlock(blockSetId: String, durationSeconds: Double, reply: @escaping (Bool) -> Void) {

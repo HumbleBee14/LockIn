@@ -77,6 +77,12 @@ targets:
     sources: [Tests/DaemonTests]
     dependencies:
       - target: LockInDaemonCore
+  AppTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [Tests/AppTests]
+    dependencies:
+      - target: LockIn
 schemes:
   LockIn:
     build:
@@ -87,4 +93,5 @@ schemes:
     test:
       targets:
         - DaemonTests
+        - AppTests
       gatherCoverageData: false
