@@ -1,4 +1,7 @@
 import Foundation
+import LockInAgentCore
 
-FileHandle.standardError.write(Data("lockin-agent starting\n".utf8))
+let observer = LaunchObserver()
+observer.start()
+FileHandle.standardError.write(Data("lockin-agent observing\n".utf8))
 RunLoop.main.run()
