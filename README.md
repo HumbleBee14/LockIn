@@ -23,7 +23,7 @@ Early development. macOS 13+.
 
 ## License
 
-**TBD — to be finalized before public release.** LockIn studies and builds on SelfControl (GPLv3); the license will be settled (almost certainly GPLv3, given that lineage) before this repo is made public. Do not assume permissive licensing until a `LICENSE` file lands.
+**GPLv3** (see [`LICENSE`](LICENSE)). LockIn incorporates and builds on SelfControl's hosts/pf engine, which is GPLv3; LockIn inherits that license. Keep this code isolated from any permissively-licensed modules.
 
 ## Credits
 
