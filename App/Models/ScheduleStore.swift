@@ -30,8 +30,13 @@ final class ScheduleStore: ObservableObject {
         config.blockSets.removeAll { $0.id == id }
     }
 
-    func importPreset(_ preset: Preset) {
-        addBlockSet(preset.blockSet)
+    // creates the category's block set, then fetches its domains from the remote source (nothing hardcoded)
+    func importCategory(_ category: BlockCategory) async -> Bool {
+        addBlockSet(BlockSet(id: category.id, name: category.name, domains: [], appBundleIds: []))
+        guard let urlString = category.sourceURL, let url = URL(string: urlString) else {
+            return await commit()
+        }
+        return await importRemoteList(into: category.id, from: url)
     }
 
     func importDomains(into blockSetId: String, from text: String) {
@@ -46,29 +51,15 @@ final class ScheduleStore: ObservableObject {
         }
     }
 
-    // Parses a pasted list or hosts-file body into bare domains: strips comments, "0.0.0.0"/"127.0.0.1"
-    // host-file prefixes, schemes, paths, and ports. One domain per line.
+    // delegates to DomainListImporter, which auto-detects format (plain / hosts / AdBlock / CSV)
     nonisolated static func parseDomainList(_ text: String) -> [String] {
-        var out: [String] = []
-        for rawLine in text.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
-            var line = rawLine.trimmingCharacters(in: .whitespaces)
-            if let hash = line.firstIndex(of: "#") { line = String(line[..<hash]) }
-            line = line.trimmingCharacters(in: .whitespaces)
-            guard !line.isEmpty else { continue }
-            var token = line
-            for prefix in ["0.0.0.0", "127.0.0.1", "::1"] {
-                if token.hasPrefix(prefix) {
-                    token = String(token.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
-                }
-            }
-            token = token.replacingOccurrences(of: "https://", with: "")
-            token = token.replacingOccurrences(of: "http://", with: "")
-            if let slash = token.firstIndex(of: "/") { token = String(token[..<slash]) }
-            if let colon = token.firstIndex(of: ":") { token = String(token[..<colon]) }
-            token = token.trimmingCharacters(in: .whitespaces).lowercased()
-            if token.contains("."), !out.contains(token) { out.append(token) }
-        }
-        return out
+        DomainListImporter.parse(text)
+    }
+
+    func importFile(into blockSetId: String, at url: URL) -> Bool {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return false }
+        importDomains(into: blockSetId, from: text)
+        return true
     }
 
     func importRemoteList(into blockSetId: String, from url: URL) async -> Bool {

@@ -8,8 +8,7 @@ final class ClockGuard {
     private let tickSlack: Double = 5.0
     private let cumulativeDriftLimit: Double = 45.0
 
-    // in-memory anchor: monotonic reading at the last heartbeat (or launch). NEVER persisted —
-    // the prior boot's mach_continuous_time counter is meaningless after a reboot.
+    // anti-bypass invariant: in-memory only; never persist (prior boot's counter is meaningless)
     private var anchorMonotonic: Double
 
     init(wall: WallClock, monotonic: MonotonicClock, boot: BootSession, trusted: TrustedTimeSource) {
@@ -21,18 +20,25 @@ final class ClockGuard {
         var s = state
         let now = monotonic.seconds
         let sameBoot = (boot.uuid == s.bootSessionUUID)
-        // anchorMonotonic is in-memory, set at THIS process/boot's init and re-set each heartbeat — so
-        // (now - anchorMonotonic) is always a true intra-boot interval, valid even on the first heartbeat
-        // of a new boot. The prior boot's counter is never read (it's gone). Resume from persisted served.
         let liveDelta = max(0, now - anchorMonotonic)
         let served = s.servedElapsedAtLastHeartbeat + liveDelta
+
+        // clock-tamper protection off (user setting): trust wall directly; served still tracks monotonic
+        if !s.appliedSettings.clockTamperProtection {
+            s.servedElapsedAtLastHeartbeat = served
+            s.trustedNowAtLastHeartbeat = wall.now
+            s.bootSessionUUID = boot.uuid
+            s.anchorWallTime = wall.now
+            anchorMonotonic = now
+            return s
+        }
 
         if sameBoot {
             let wallAdvance = wall.now.timeIntervalSince(s.trustedNowAtLastHeartbeat)
             let drift = wallAdvance - liveDelta
             s.cumulativeDriftSeconds += max(0, drift)
-            // trip on EITHER a single big jump (per-tick) OR accumulated slow salami drift (cumulative)
-            if drift > liveDelta + tickSlack || s.cumulativeDriftSeconds > cumulativeDriftLimit {
+            // drift is already wall-over-monotonic; trip on a single jump past slack or accumulated drift
+            if drift > tickSlack || s.cumulativeDriftSeconds > cumulativeDriftLimit {
                 s.clockSuspicious = true
             }
         }
@@ -70,32 +76,19 @@ final class ClockGuard {
     }
 
     private func computeTrustedNow(_ s: LockState, sameBoot: Bool, liveDelta: Double) -> Date {
-        // The monotonic cap is the CEILING. Online time never returns raw above it — it can only
-        // clear-suspicion or tighten within the cap (spec §5b: online is a secondary cross-check,
-        // never to end a block earlier than the mode's authority allows).
+        // anti-bypass invariant: the monotonic ceiling is the cap; online only tightens, never ends early
         let sameBootCeiling = s.trustedNowAtLastHeartbeat.addingTimeInterval(liveDelta + tickSlack)
 
-        // 1. Suspicious (persists across reboot): never trust wall or raw online. Advance only by
-        //    monotonic served (~0 across a reboot), so a forged clock can't be laundered.
         if s.clockSuspicious {
             return s.trustedNowAtLastHeartbeat.addingTimeInterval(liveDelta)
         }
-
-        // 2. Online + not suspicious: bounded so it can't leap past what monotonic served this session.
         if let onlineNow = trusted.fetch() {
-            if sameBoot { return min(onlineNow, sameBootCeiling) }
-            return onlineNow
+            return sameBoot ? min(onlineNow, sameBootCeiling) : onlineNow
         }
-
-        // 3. Same boot, not suspicious, offline: advance-cap to monotonic served (+slack).
-        //    mach_continuous_time counts during SLEEP, so a genuine sleep advances correctly here.
         if sameBoot {
             return min(wall.now, sameBootCeiling)
         }
-
-        // 4. New boot, not suspicious, offline: monotonic did NOT count powered-off time. Per spec §5b,
-        //    trust the system wall clock so an honest "block until 07:00" ends at ~07:00 after a full
-        //    overnight power-off. Accepted residual: forward-jump + clean offline cold boot can end early.
+        // clean offline cold boot trusts wall (spec §5b); accepted residual, do not add a served-floor
         return wall.now
     }
 }

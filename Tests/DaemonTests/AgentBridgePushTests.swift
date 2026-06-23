@@ -18,6 +18,28 @@ final class AgentBridgePushTests: XCTestCase {
         try? FileManager.default.removeItem(at: url)
         try? FileManager.default.removeItem(at: cfg)
     }
+
+    func testAppBlockingDisabledPushesEmptyBundleList() throws {
+        let bridge = SpyAgentBridge()
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("active-push2.plist")
+        let cfg = FileManager.default.temporaryDirectory.appendingPathComponent("config-push2.plist")
+        try? FileManager.default.removeItem(at: url)
+        var settings = SettingsConfig()
+        settings.appBlockingEnabled = false
+        let cfgStore = ConfigStore(path: cfg)
+        try cfgStore.save(ScheduleConfig(rules: [], blockSets: [], settings: settings))
+        let guard_ = ClockGuard(wall: FakeWallClock(Date()), monotonic: FakeMonotonicClock(0),
+                                boot: FakeBootSession("B"), trusted: FakeTrustedTimeSource(nil))
+        let controller = BlockController(store: LockStateStore(path: url), clockGuard: guard_,
+                                         configStore: cfgStore, agentBridge: bridge)
+        _ = controller.startAdHoc(blockSetId: "x", durationSeconds: 60,
+                                  domains: [], appBundleIds: ["com.tinyspeck.slackmacgap"])
+        XCTAssertEqual(bridge.lastPushed?.active, true)
+        XCTAssertEqual(bridge.lastPushed?.bundleIds, [],
+            "app-blocking OFF must push an empty list so the agent kills nothing")
+        try? FileManager.default.removeItem(at: url)
+        try? FileManager.default.removeItem(at: cfg)
+    }
 }
 
 final class SpyAgentBridge: AgentBridging {

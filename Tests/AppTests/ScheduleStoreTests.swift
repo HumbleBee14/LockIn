@@ -13,10 +13,12 @@ final class ScheduleStoreTests: XCTestCase {
         XCTAssertEqual(store.config.rules.count, 0)
     }
 
-    func testImportSocialPresetAddsDomains() {
+    func testImportCategoryCreatesNamedBlockSet() async {
         let store = ScheduleStore(client: DaemonClient())
-        store.importPreset(.social)
-        XCTAssertTrue(store.config.blockSets.contains { $0.id == "social" && !$0.domains.isEmpty })
+        let category = BlockCategory(id: "social", name: "Social Media", sourceURL: nil)
+        _ = await store.importCategory(category)
+        XCTAssertTrue(store.config.blockSets.contains { $0.id == "social" && $0.name == "Social Media" },
+            "importing a category creates its block set; domains are fetched, never hardcoded")
     }
 
     func testParseDomainListStripsHostsAndComments() {

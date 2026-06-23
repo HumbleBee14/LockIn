@@ -125,6 +125,31 @@ final class ClockGuardTests: XCTestCase {
             "online time bounded by monotonic cap; a forged far-future reading cannot end the block")
     }
 
+    func testTamperProtectionOffTrustsWallClock() {
+        let start = Date(timeIntervalSince1970: 0)
+        let end = Date(timeIntervalSince1970: 5 * 3600)
+        var s = scheduled(windowEnd: end, anchorWall: start, boot: "B1")
+        s.appliedSettings.clockTamperProtection = false
+        let (g, w, m, _) = makeGuard(wall: start, mono: 0, boot: "B1", trusted: nil)
+        m.seconds = 60
+        w.now = end.addingTimeInterval(60)
+        s = g.heartbeat(s)
+        XCTAssertTrue(g.isExpired(s), "with tamper protection off, the wall clock past window-end expires it")
+        XCTAssertFalse(s.clockSuspicious, "tamper protection off never flags suspicion")
+    }
+
+    func testSingleModestForwardJumpTripsSuspicion() {
+        let start = Date(timeIntervalSince1970: 0)
+        let end = Date(timeIntervalSince1970: 5 * 3600)
+        var s = scheduled(windowEnd: end, anchorWall: start, boot: "B1")
+        let (g, w, m, _) = makeGuard(wall: start, mono: 0, boot: "B1", trusted: nil)
+        m.seconds = 15
+        w.now = start.addingTimeInterval(35)
+        s = g.heartbeat(s)
+        XCTAssertTrue(s.clockSuspicious,
+            "a 20s wall-over-monotonic jump (> tickSlack) in one tick must trip suspicion")
+    }
+
     func testSubSlackSalamiDriftTripsCumulativeSuspicion() {
         let start = Date(timeIntervalSince1970: 0)
         let end = Date(timeIntervalSince1970: 5 * 3600)

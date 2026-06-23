@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 struct BlockSetEditorView: View {
     @ObservedObject var store: ScheduleStore
@@ -9,6 +10,7 @@ struct BlockSetEditorView: View {
     @State private var importURL = ""
     @State private var importing = false
     @State private var showingImport = false
+    private let categories = CategoryCatalogLoader.load()
 
     var body: some View {
         HStack(spacing: 0) {
@@ -41,18 +43,19 @@ struct BlockSetEditorView: View {
                 .buttonStyle(.plain)
             }
             Divider().padding(.vertical, Theme.Spacing.s)
-            Text("Add a preset")
-                .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.mistDim)
-            ForEach(Preset.allCases) { preset in
-                Button {
-                    store.importPreset(preset)
-                    selectedId = preset.rawValue
-                    Task { _ = await store.commit() }
-                } label: {
-                    Label(preset.displayName, systemImage: "plus.circle")
-                        .font(.system(size: 12))
+            if !categories.isEmpty {
+                Text("Add a category")
+                    .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.mistDim)
+                ForEach(categories) { category in
+                    Button {
+                        selectedId = category.id
+                        Task { _ = await store.importCategory(category) }
+                    } label: {
+                        Label(category.name, systemImage: "plus.circle")
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(.borderless)
                 }
-                .buttonStyle(.borderless)
             }
             Spacer()
         }
@@ -108,7 +111,7 @@ struct BlockSetEditorView: View {
         VStack(alignment: .leading, spacing: Theme.Spacing.m) {
             Text("Import domains")
                 .font(Theme.displayFont(18, .bold))
-            Text("Paste one domain per line, or a hosts-file list. Comments and host prefixes are stripped automatically.")
+            Text("Paste a list, hosts file, AdBlock filter, or CSV. The format is detected automatically.")
                 .font(.system(size: 12)).foregroundStyle(Theme.mistDim)
             TextEditor(text: $importText)
                 .font(Theme.monoFont(12))
@@ -123,6 +126,8 @@ struct BlockSetEditorView: View {
                 Button("Fetch") { fetchRemote() }
                     .disabled(importURL.isEmpty || importing)
             }
+            Button("Import from file…") { importFromFile() }
+                .buttonStyle(.borderless)
             if importing { ProgressView().controlSize(.small) }
             HStack {
                 Spacer()
@@ -141,6 +146,18 @@ struct BlockSetEditorView: View {
 
     private func dismissImport() {
         showingImport = false; importText = ""; importURL = ""
+    }
+
+    private func importFromFile() {
+        guard let id = selectedId else { return }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.plainText, .commaSeparatedText, .text, .data]
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            _ = store.importFile(into: id, at: url)
+            Task { _ = await store.commit() }
+            dismissImport()
+        }
     }
 
     private func fetchRemote() {

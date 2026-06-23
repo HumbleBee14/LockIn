@@ -26,7 +26,7 @@ struct RuleEditorView: View {
             _weekdays = State(initialValue: [1, 2, 3, 4, 5, 6, 7])
             _start = State(initialValue: cal.date(bySettingHour: 22, minute: 0, second: 0, of: Date()) ?? Date())
             _end = State(initialValue: cal.date(bySettingHour: 7, minute: 0, second: 0, of: Date()) ?? Date())
-            _blockSetId = State(initialValue: store.config.blockSets.first?.id ?? Preset.social.rawValue)
+            _blockSetId = State(initialValue: store.config.blockSets.first?.id ?? "")
         }
     }
 
@@ -61,12 +61,14 @@ struct RuleEditorView: View {
             }
             .datePickerStyle(.field)
 
-            Picker("Block set", selection: $blockSetId) {
-                ForEach(store.config.blockSets, id: \.id) { set in
-                    Text(set.name).tag(set.id)
-                }
-                if store.config.blockSets.isEmpty {
-                    Text(Preset.social.displayName).tag(Preset.social.rawValue)
+            if store.config.blockSets.isEmpty {
+                Text("Create a block set first (Block Sets tab).")
+                    .font(.system(size: 12)).foregroundStyle(Theme.mistDim)
+            } else {
+                Picker("Block set", selection: $blockSetId) {
+                    ForEach(store.config.blockSets, id: \.id) { set in
+                        Text(set.name).tag(set.id)
+                    }
                 }
             }
 

@@ -19,7 +19,7 @@ public final class BlockController {
         let store = LockStateStore(
             path: URL(fileURLWithPath: "/Library/Application Support/LockIn/active.plist"))
         let guard_ = ClockGuard(wall: SystemWallClock(), monotonic: SystemMonotonicClock(),
-                                boot: SystemBootSession(), trusted: PinnedTrustedTimeSource(hosts: []))
+                                boot: SystemBootSession(), trusted: TrustedTime.system())
         return BlockController(store: store, clockGuard: guard_)
     }
 
@@ -53,7 +53,7 @@ public final class BlockController {
             appliedDomains: domains, appliedAppBundleIds: appBundleIds, appliedSettings: settings)
         try? store.save(state)
         blocker.apply(domains: domains)
-        agentBridge.push(BlockedAppSnapshot(active: true, bundleIds: appBundleIds))
+        pushAppSnapshot(for: state)
         return true
     }
 
@@ -99,9 +99,7 @@ public final class BlockController {
         loadConfig().blockSets.first(where: { $0.id == id })?.domains ?? []
     }
 
-    // Time is "resolved" enough to make an expiry decision when trusted online time is reachable,
-    // OR the current state is not flagged suspicious (a clean offline clock is trusted per spec §5b).
-    // While suspicious AND offline we return false → applyDecisionIfNeeded holds the block (bias to blocked).
+    // bias to blocked: suspicious + offline => unresolved, so applyDecisionIfNeeded holds the block
     public func timeIsResolved() -> Bool {
         if clockGuard.hasTrustedTime() { return true }
         if let s = store.load() { return !s.clockSuspicious }
@@ -118,7 +116,13 @@ public final class BlockController {
             appliedDomains: domains, appliedAppBundleIds: appBundleIds, appliedSettings: settings)
         try? store.save(state)
         blocker.apply(domains: domains)
-        agentBridge.push(BlockedAppSnapshot(active: true, bundleIds: appBundleIds))
+        pushAppSnapshot(for: state)
+    }
+
+    // app-blocking off (snapshotted setting) => push empty so the agent kills nothing
+    private func pushAppSnapshot(for state: LockState) {
+        let bundleIds = state.appliedSettings.appBlockingEnabled ? state.appliedAppBundleIds : []
+        agentBridge.push(BlockedAppSnapshot(active: true, bundleIds: bundleIds))
     }
 
     func pushClearedSnapshot() {

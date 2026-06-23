@@ -1,9 +1,7 @@
 import Foundation
 import ServiceManagement
 
-// Tier 5c — best-effort only. KeepAlive (launchd) is the real resurrection mechanism. This never
-// gates correctness and no test depends on it: booting out a system daemon needs sudo (past our
-// threat ceiling), and SMAppService re-registration generally wants the app's bundle context.
+// tier 5c — best-effort only; launchd KeepAlive is the real mechanism. No test depends on this.
 public final class Resurrector {
     private let daemonPing: () -> Bool
     private var lastAttempt: Date?
