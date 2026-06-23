@@ -68,3 +68,20 @@ re-register on each reachable OS.
 - macOS 13: `<supported | not>` | macOS 14: `<...>` | macOS 15: `<...>`
 - Keys that worked: `<...>`
 - Phase 3 decision: `<ship 5b as designed | downgrade/skip>`
+
+---
+
+## Phase 1 — Manual acceptance on real hardware (the unit suite is green; these need root + a live box)
+
+All ClockGuard/Scheduler/LockState/boot-race unit tests PASS headlessly (26 tests).
+These remaining acceptance items need root and real browsers/reboots:
+
+- **#2 websites blocked in Safari/Chrome/Firefox** while a block is active (see Risk 2 canary).
+- **#3 survives kill/quit/delete/reboot** — start a block, kill `lockind`, reboot; confirm
+  hosts/pf stay applied until window end. (KeepAlive restarts the daemon.)
+- **#5 forward clock jump** — the unit tests prove the logic; confirm on hardware that
+  setting the Date & Time forward during an active block does not lift it.
+- **#7 `testWebsiteBlockUnaffectedByAgentKill`** — start a block, `launchctl bootout
+  gui/$UID/com.grepguru.lockin.agent`, confirm websites stay blocked.
+- **pf anchor rename (DECISIONS.md D7)** — after renaming `org.eyebeam` → a LockIn anchor
+  in the engine, re-run the Risk 2 canary to confirm detection + teardown still work.
