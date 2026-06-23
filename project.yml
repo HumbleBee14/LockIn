@@ -29,6 +29,16 @@ targets:
         embed: true
         copy:
           destination: executables
+    postBuildScripts:
+      - name: Embed Launchd plists
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          DAEMONS="$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchDaemons"
+          AGENTS="$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchAgents"
+          mkdir -p "$DAEMONS" "$AGENTS"
+          cp "$SRCROOT/Daemon/lockind.plist" "$DAEMONS/"
+          cp "$SRCROOT/Agent/lockin-agent.plist" "$AGENTS/"
   LockInDaemonCore:
     type: library.static
     platform: macOS

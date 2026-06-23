@@ -4,8 +4,8 @@ import SwiftUI
 struct LockInApp: App {
     var body: some Scene {
         WindowGroup {
-            Text("LockIn")
-                .frame(width: 360, height: 200)
+            OnboardingView()
+                .frame(width: 360, height: 220)
         }
     }
 }
