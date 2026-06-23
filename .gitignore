@@ -26,4 +26,7 @@ reference/
 *.p12
 *.mobileprovision
 *.cer
+
+# Internal notes / design / planning docs — never committed (code only)
 DECISIONS.md
+docs/

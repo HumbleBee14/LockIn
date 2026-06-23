@@ -5,17 +5,23 @@ final class ScheduleStore: ObservableObject {
     @Published var config: ScheduleConfig
     private let client: DaemonClient
 
-    init(client: DaemonClient, config: ScheduleConfig = ScheduleConfig(rules: [])) {
+    init(client: DaemonClient, config: ScheduleConfig? = nil) {
         self.client = client
-        self.config = config
+        self.config = config ?? ConfigPersistence.load() ?? ScheduleConfig(rules: [])
+    }
+
+    private func persist() {
+        ConfigPersistence.save(config)
     }
 
     func addRule(_ rule: Rule) {
         config.rules.append(rule)
+        persist()
     }
 
     func removeRule(id: String) {
         config.rules.removeAll { $0.id == id }
+        persist()
     }
 
     func addBlockSet(_ set: BlockSet) {
@@ -24,10 +30,12 @@ final class ScheduleStore: ObservableObject {
         } else {
             config.blockSets.append(set)
         }
+        persist()
     }
 
     func removeBlockSet(id: String) {
         config.blockSets.removeAll { $0.id == id }
+        persist()
     }
 
     // creates the category's block set, then fetches its domains from the remote source (nothing hardcoded)
@@ -46,6 +54,7 @@ final class ScheduleStore: ObservableObject {
             var merged = config.blockSets[idx].domains
             for d in parsed where !merged.contains(d) { merged.append(d) }
             config.blockSets[idx].domains = merged
+            persist()
         } else {
             addBlockSet(BlockSet(id: blockSetId, name: blockSetId, domains: parsed, appBundleIds: []))
         }

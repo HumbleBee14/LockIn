@@ -45,7 +45,7 @@ final class ClockGuard {
 
         let cappedTrustedNow = computeTrustedNow(s, sameBoot: sameBoot, liveDelta: liveDelta)
 
-        // clear-path: ONLY a successful pinned online reconciliation clears suspicion (never local, never UI).
+        // only a successful online reconciliation clears suspicion; never local, never UI
         if s.clockSuspicious, let onlineNow = trusted.fetch(),
            abs(onlineNow.timeIntervalSince(cappedTrustedNow)) <= tickSlack {
             s.clockSuspicious = false
@@ -88,7 +88,7 @@ final class ClockGuard {
         if sameBoot {
             return min(wall.now, sameBootCeiling)
         }
-        // clean offline cold boot trusts wall (spec §5b); accepted residual, do not add a served-floor
+        // clean offline cold boot trusts the wall clock; do not add a served-floor here
         return wall.now
     }
 }

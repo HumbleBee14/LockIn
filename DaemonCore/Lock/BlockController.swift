@@ -24,7 +24,7 @@ public final class BlockController {
     }
 
     func registerSchedule(_ config: ScheduleConfig) -> Bool {
-        // anti-bypass invariant: never mutate an active block's snapshot; edits affect FUTURE only.
+        // invariant: never mutate an active block's snapshot; edits affect future blocks only
         try? configStore.save(config)
         return true
     }
@@ -99,7 +99,7 @@ public final class BlockController {
         loadConfig().blockSets.first(where: { $0.id == id })?.domains ?? []
     }
 
-    // bias to blocked: suspicious + offline => unresolved, so applyDecisionIfNeeded holds the block
+    // suspicious + offline => unresolved, so the block is held rather than evaluated
     public func timeIsResolved() -> Bool {
         if clockGuard.hasTrustedTime() { return true }
         if let s = store.load() { return !s.clockSuspicious }
@@ -119,7 +119,7 @@ public final class BlockController {
         pushAppSnapshot(for: state)
     }
 
-    // app-blocking off (snapshotted setting) => push empty so the agent kills nothing
+    // app-blocking off => push an empty list so the agent kills nothing
     private func pushAppSnapshot(for state: LockState) {
         let bundleIds = state.appliedSettings.appBlockingEnabled ? state.appliedAppBundleIds : []
         agentBridge.push(BlockedAppSnapshot(active: true, bundleIds: bundleIds))

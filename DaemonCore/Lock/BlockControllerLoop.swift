@@ -7,7 +7,7 @@ extension BlockController {
             return
         }
         if state.active {
-            // boot-race rule: never tear down without a resolved time source (bias to blocked).
+            // never tear down without a resolved time source
             guard timeResolved else { return }
             let beat = guardHeartbeat(state)
             saveState(beat)

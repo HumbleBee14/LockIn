@@ -41,10 +41,4 @@ enum Disclosures {
             message: "Once a website block is active, it holds until the scheduled window ends. There is no off switch — that's the point.")
     }
 
-    static var appBlockingSoft: some View {
-        DisclosureCallout(
-            icon: "exclamationmark.triangle.fill", tint: Theme.mistDim,
-            title: "App blocking is a soft deterrent",
-            message: "Blocked apps are quit on launch, but the app blocker can be turned off by quitting the helper — no password needed. Website blocking is the real hard lock and holds until the window ends.")
-    }
 }

@@ -1,7 +1,7 @@
 import Foundation
 import ServiceManagement
 
-// tier 5c — best-effort only; launchd KeepAlive is the real mechanism. No test depends on this.
+// best-effort only; launchd KeepAlive is the primary mechanism
 public final class Resurrector {
     private let daemonPing: () -> Bool
     private var lastAttempt: Date?

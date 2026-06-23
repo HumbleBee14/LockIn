@@ -37,7 +37,7 @@ public final class DaemonListener: NSObject, NSXPCListenerDelegate {
 
     public func listener(_ listener: NSXPCListener,
                          shouldAcceptNewConnection newConnection: NSXPCConnection) -> Bool {
-        // Anti-bypass invariant: identity comes from the kernel audit token, never the PID (CVE-2020-14977).
+        // authorize by kernel audit token, never PID
         guard isClientValid(newConnection.auditToken) else { return false }
         newConnection.exportedInterface = NSXPCInterface(with: LockInDaemonProtocol.self)
         newConnection.exportedObject = DaemonXPC(controller: controller)

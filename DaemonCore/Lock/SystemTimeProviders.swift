@@ -26,16 +26,20 @@ struct SystemBootSession: BootSession {
     }
 }
 
-// Pinned online time cross-check (spec §5b): >=2 hosts must agree; fail-closed when a host is unpinned
+// .pinned requires an SPKI pin per host and fails closed without one; .systemTrust uses standard TLS.
+enum TimeTrustPolicy { case pinned, systemTrust }
+
 final class PinnedTrustedTimeSource: NSObject, TrustedTimeSource, URLSessionDelegate {
     private let hosts: [URL]
-    private let pinnedSHA256: [String: [String]]   // host -> base64 SPKI SHA-256 pins
+    private let pinnedSHA256: [String: [String]]
+    private let policy: TimeTrustPolicy
     private let agreementTolerance: TimeInterval = 30
     private let perRequestTimeout: TimeInterval = 4
 
-    init(hosts: [URL], pinnedSHA256: [String: [String]] = [:]) {
+    init(hosts: [URL], pinnedSHA256: [String: [String]] = [:], policy: TimeTrustPolicy = .pinned) {
         self.hosts = hosts
         self.pinnedSHA256 = pinnedSHA256
+        self.policy = policy
     }
 
     func fetch() -> Date? {
@@ -49,7 +53,7 @@ final class PinnedTrustedTimeSource: NSObject, TrustedTimeSource, URLSessionDele
     }
 
     private func fetchDateHeader(from url: URL) -> Date? {
-        guard pinnedSHA256[url.host ?? ""]?.isEmpty == false else { return nil }
+        if policy == .pinned, pinnedSHA256[url.host ?? ""]?.isEmpty != false { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = "HEAD"
         request.timeoutInterval = perRequestTimeout
@@ -76,13 +80,16 @@ final class PinnedTrustedTimeSource: NSObject, TrustedTimeSource, URLSessionDele
                     completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
               let trust = challenge.protectionSpace.serverTrust,
-              let host = challenge.protectionSpace.host as String?,
-              let pins = pinnedSHA256[host], !pins.isEmpty else {
+              let host = challenge.protectionSpace.host as String? else {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }
-        if Self.trust(trust, matchesAnyPin: pins) {
-            completionHandler(.useCredential, URLCredential(trust: trust))
+        if let pins = pinnedSHA256[host], !pins.isEmpty {
+            let ok = Self.trust(trust, matchesAnyPin: pins)
+            completionHandler(ok ? .useCredential : .cancelAuthenticationChallenge,
+                              ok ? URLCredential(trust: trust) : nil)
+        } else if policy == .systemTrust {
+            completionHandler(.performDefaultHandling, nil)
         } else {
             completionHandler(.cancelAuthenticationChallenge, nil)
         }
@@ -101,12 +108,12 @@ final class PinnedTrustedTimeSource: NSObject, TrustedTimeSource, URLSessionDele
 }
 
 enum TrustedTime {
-    // pins empty pending the RISKS.md pinning spike => fail-closed (offline) until SPKI pins are filled
     static func system() -> PinnedTrustedTimeSource {
         PinnedTrustedTimeSource(
             hosts: [URL(string: "https://www.cloudflare.com")!,
                     URL(string: "https://www.apple.com")!],
-            pinnedSHA256: [:])
+            pinnedSHA256: [:],
+            policy: .systemTrust)
     }
 }
 

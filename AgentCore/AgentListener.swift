@@ -37,7 +37,7 @@ public final class AgentListener: NSObject, NSXPCListenerDelegate {
 
     public func listener(_ listener: NSXPCListener,
                          shouldAcceptNewConnection newConnection: NSXPCConnection) -> Bool {
-        // Anti-bypass invariant: only the LockIn-signed daemon may push snapshots (audit token, not PID).
+        // only the signed daemon may push; authorize by audit token, never PID
         guard isClientValid(newConnection.auditToken) else { return false }
         newConnection.exportedInterface = NSXPCInterface(with: LockInAgentProtocol.self)
         newConnection.exportedObject = AgentXPC(observer: observer)

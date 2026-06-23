@@ -16,7 +16,7 @@ public final class LaunchObserver {
         snapshot.active && snapshot.bundleIds.contains(bundleId)
     }
 
-    // On a new snapshot (block start), apps already open are not covered by didLaunch — sweep them too.
+    // didLaunch misses apps already open at block start, so sweep them here
     private func sweepRunningApps() {
         guard snapshot.active else { return }
         for app in NSWorkspace.shared.runningApplications {

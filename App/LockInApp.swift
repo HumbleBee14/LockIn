@@ -5,10 +5,14 @@ import ServiceManagement
 struct LockInApp: App {
     @StateObject private var installer = InstallerService()
 
+    private var previewBypass: Bool {
+        ProcessInfo.processInfo.environment["LOCKIN_PREVIEW"] == "1"
+    }
+
     var body: some Scene {
         WindowGroup {
             Group {
-                if installer.daemonStatus == .enabled {
+                if previewBypass || installer.daemonStatus == .enabled {
                     RootView()
                 } else {
                     OnboardingView()

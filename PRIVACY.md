@@ -1,10 +1,10 @@
 # Privacy Policy
 
-LockIn is designed to keep your information on your own Mac.
+LockIn is designed to keep your information on your own Machine.
 
 ## What LockIn stores
 
-LockIn saves your schedules, block sets, and settings locally on your device so it can enforce the blocks you set up. This stays on your Mac.
+LockIn saves your schedules, block sets, and settings locally on your device so it can enforce the blocks you set up. This stays on your Machine.
 
 ## What LockIn does not do
 

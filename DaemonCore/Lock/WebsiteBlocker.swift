@@ -26,7 +26,7 @@ final class WebsiteBlocker {
     }
 
     func reassertIfTampered(domains: [String]) {
-        // anti-bypass invariant: re-apply hosts/pf if a tamper removed them mid-block
+        // re-apply if a tamper removed the block mid-window
         if !isApplied() { apply(domains: domains) }
     }
 }
