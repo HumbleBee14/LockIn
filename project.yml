@@ -64,10 +64,20 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.grepguru.lockin.daemon
+  LockInAgentCore:
+    type: library.static
+    platform: macOS
+    sources: [AgentCore, Shared]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.grepguru.lockin.agentcore
+        DEFINES_MODULE: YES
   lockin-agent:
     type: tool
     platform: macOS
-    sources: [Agent, Shared]
+    sources: [Agent]
+    dependencies:
+      - target: LockInAgentCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.grepguru.lockin.agent
@@ -83,6 +93,12 @@ targets:
     sources: [Tests/AppTests]
     dependencies:
       - target: LockIn
+  AgentTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [Tests/AgentTests]
+    dependencies:
+      - target: LockInAgentCore
 schemes:
   LockIn:
     build:
@@ -94,4 +110,5 @@ schemes:
       targets:
         - DaemonTests
         - AppTests
+        - AgentTests
       gatherCoverageData: false
