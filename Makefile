@@ -11,15 +11,13 @@ APP     := $(DERIVED)/Build/Products/$(CONFIG)/LockIn.app
 help:
 	@echo "LockIn — common tasks"
 	@echo "  make gen       Regenerate LockIn.xcodeproj from project.yml (run after adding files)"
-	@echo "  make build     Build the app, daemon, and agent (unsigned, fast)"
-	@echo "  make signed    Build code-signed so the daemon can install (real lock)"
+	@echo "  make build     Build the signed app, daemon, and agent (installable)"
 	@echo "  make test      Run all unit tests (daemon + app + agent)"
 	@echo "  make run       Build and launch the app"
 	@echo "  make clean     Remove build artifacts"
 	@echo ""
-	@echo "Note: the real system-level lock needs Developer ID signing + install."
-	@echo "An unsigned build runs the UI and all tests, but cannot register the"
-	@echo "background blocker. See Tests/Validation/RISKS.md."
+	@echo "Signing uses the team set in project.yml. The system-level lock needs a"
+	@echo "signed build to register the background blocker. See Tests/Validation/RISKS.md."
 
 .PHONY: gen
 gen:
@@ -27,11 +25,6 @@ gen:
 
 .PHONY: build
 build: gen
-	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration $(CONFIG) \
-		-derivedDataPath $(DERIVED) build CODE_SIGNING_ALLOWED=NO
-
-.PHONY: signed
-signed: gen
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration $(CONFIG) \
 		-derivedDataPath $(DERIVED) build -allowProvisioningUpdates
 
