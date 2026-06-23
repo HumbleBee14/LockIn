@@ -11,16 +11,28 @@ final class InstallerService: ObservableObject {
     private let daemon = SMAppService.daemon(plistName: "lockind.plist")
     private let agent = SMAppService.agent(plistName: "lockin-agent.plist")
 
-    private var previewBypass: Bool {
-        ProcessInfo.processInfo.environment["LOCKIN_PREVIEW"] == "1"
+    enum Requirement {
+        case daemonInstalled
+        case agentInstalled
     }
 
-    // live check, re-queried at each lock-creating action so a later helper removal is caught
-    func isReady() -> Bool {
-        if previewBypass { return true }
-        refreshStatus()
-        return daemonStatus == .enabled
+    // ordered list of everything that must be true before a lock can start; add to extend the gate
+    private let requirements: [Requirement] = [.daemonInstalled, .agentInstalled]
+
+    private func isMet(_ requirement: Requirement) -> Bool {
+        switch requirement {
+        case .daemonInstalled: return daemonStatus == .enabled
+        case .agentInstalled: return agentStatus == .enabled
+        }
     }
+
+    // first requirement not yet satisfied, or nil when everything is ready; re-queried live each call
+    func firstUnmet() -> Requirement? {
+        refreshStatus()
+        return requirements.first { !isMet($0) }
+    }
+
+    func isReady() -> Bool { firstUnmet() == nil }
 
     var isInstalled: Bool { daemonStatus == .enabled }
     var needsApproval: Bool { daemonStatus == .requiresApproval || agentStatus == .requiresApproval }

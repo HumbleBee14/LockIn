@@ -11,7 +11,8 @@ APP     := $(DERIVED)/Build/Products/$(CONFIG)/LockIn.app
 help:
 	@echo "LockIn — common tasks"
 	@echo "  make gen       Regenerate LockIn.xcodeproj from project.yml (run after adding files)"
-	@echo "  make build     Build the app, daemon, and agent (unsigned)"
+	@echo "  make build     Build the app, daemon, and agent (unsigned, fast)"
+	@echo "  make signed    Build code-signed so the daemon can install (real lock)"
 	@echo "  make test      Run all unit tests (daemon + app + agent)"
 	@echo "  make run       Build and launch the app"
 	@echo "  make clean     Remove build artifacts"
@@ -28,6 +29,11 @@ gen:
 build: gen
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration $(CONFIG) \
 		-derivedDataPath $(DERIVED) build CODE_SIGNING_ALLOWED=NO
+
+.PHONY: signed
+signed: gen
+	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration $(CONFIG) \
+		-derivedDataPath $(DERIVED) build -allowProvisioningUpdates
 
 .PHONY: test
 test: gen

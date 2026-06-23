@@ -7,8 +7,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    CODE_SIGN_STYLE: Manual
-    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: "252N2WS4Y3"
     ENABLE_HARDENED_RUNTIME: YES
 targets:
   LockIn:
