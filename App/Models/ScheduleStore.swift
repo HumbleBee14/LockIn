@@ -71,7 +71,17 @@ final class ScheduleStore: ObservableObject {
         return out
     }
 
-    @MainActor func commit() async -> Bool {
+    func importRemoteList(into blockSetId: String, from url: URL) async -> Bool {
+        guard let (data, response) = try? await URLSession.shared.data(from: url),
+              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              let text = String(data: data, encoding: .utf8) else {
+            return false
+        }
+        importDomains(into: blockSetId, from: text)
+        return await commit()
+    }
+
+    func commit() async -> Bool {
         await client.registerSchedule(config)
     }
 }

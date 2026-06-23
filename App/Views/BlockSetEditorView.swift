@@ -6,6 +6,8 @@ struct BlockSetEditorView: View {
     @State private var selectedId: String?
     @State private var newDomain = ""
     @State private var importText = ""
+    @State private var importURL = ""
+    @State private var importing = false
     @State private var showingImport = false
 
     var body: some View {
@@ -110,21 +112,45 @@ struct BlockSetEditorView: View {
                 .font(.system(size: 12)).foregroundStyle(Theme.mistDim)
             TextEditor(text: $importText)
                 .font(Theme.monoFont(12))
-                .frame(height: 220)
+                .frame(height: 160)
                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.inkRaised))
+            Divider()
+            Text("…or fetch a public blocklist by URL")
+                .font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.mistDim)
+            HStack {
+                TextField("https://…/hosts", text: $importURL)
+                    .textFieldStyle(.roundedBorder)
+                Button("Fetch") { fetchRemote() }
+                    .disabled(importURL.isEmpty || importing)
+            }
+            if importing { ProgressView().controlSize(.small) }
             HStack {
                 Spacer()
-                Button("Cancel") { showingImport = false; importText = "" }
-                Button("Import") {
+                Button("Cancel") { dismissImport() }
+                Button("Import pasted") {
                     if let id = selectedId { store.importDomains(into: id, from: importText) }
                     Task { _ = await store.commit() }
-                    showingImport = false; importText = ""
+                    dismissImport()
                 }
                 .buttonStyle(.borderedProminent).tint(Theme.ember)
             }
         }
         .padding(Theme.Spacing.l)
         .frame(width: 420)
+    }
+
+    private func dismissImport() {
+        showingImport = false; importText = ""; importURL = ""
+    }
+
+    private func fetchRemote() {
+        guard let id = selectedId, let url = URL(string: importURL) else { return }
+        importing = true
+        Task {
+            _ = await store.importRemoteList(into: id, from: url)
+            importing = false
+            dismissImport()
+        }
     }
 
     private func addDomain(_ idx: Int) {
