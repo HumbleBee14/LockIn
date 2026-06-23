@@ -56,6 +56,8 @@ final class ClockGuard {
 
     func trustedNow(_ s: LockState) -> Date { s.trustedNowAtLastHeartbeat }
 
+    func hasTrustedTime() -> Bool { trusted.fetch() != nil }
+
     func isExpired(_ s: LockState) -> Bool {
         switch s.mode {
         case .adHoc:
