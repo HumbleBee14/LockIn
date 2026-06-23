@@ -1,1 +1,5 @@
 #import "NSXPCConnection+AuditToken.h"
+#import "Engine/Block Management/PacketFilter.h"
+#import "Engine/Block Management/HostFileBlockerSet.h"
+#import "Engine/Block Management/BlockManager.h"
+#import "Engine/Block Management/SCBlockEntry.h"

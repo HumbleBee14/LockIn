@@ -37,7 +37,14 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.grepguru.lockin.daemoncore
         SWIFT_OBJC_BRIDGING_HEADER: DaemonCore/Engine-Bridging-Header.h
+        GCC_PREFIX_HEADER: DaemonCore/Engine/Engine-Prefix.pch
+        GCC_PRECOMPILE_PREFIX_HEADER: YES
         DEFINES_MODULE: YES
+        HEADER_SEARCH_PATHS:
+          - $(SRCROOT)/DaemonCore
+          - $(SRCROOT)/DaemonCore/Engine/Block Management
+          - $(SRCROOT)/DaemonCore/Engine/Common
+          - $(SRCROOT)/DaemonCore/Engine/Common/Utility
   lockind:
     type: tool
     platform: macOS

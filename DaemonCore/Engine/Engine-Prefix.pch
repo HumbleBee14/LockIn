@@ -1,0 +1,13 @@
+#ifdef __OBJC__
+
+#import <Foundation/Foundation.h>
+#import <Cocoa/Cocoa.h>
+
+#import "DeprecationSilencers.h"
+#import "SCUtility.h"
+#import "SCErr.h"
+#import "SCConstants.h"
+#import "SCSentry.h"
+#import "SCSettings.h"
+
+#endif
