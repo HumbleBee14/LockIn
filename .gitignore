@@ -1,0 +1,28 @@
+# macOS
+.DS_Store
+
+# Xcode
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# XcodeGen generates the .xcodeproj from project.yml (source of truth)
+LockIn.xcodeproj/
+reference/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Signing / secrets
+*.p12
+*.mobileprovision
+*.cer

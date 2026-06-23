@@ -1,0 +1,51 @@
+name: LockIn
+options:
+  bundleIdPrefix: com.grepguru.lockin
+  deploymentTarget:
+    macOS: "13.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+    ENABLE_HARDENED_RUNTIME: YES
+targets:
+  LockIn:
+    type: application
+    platform: macOS
+    sources: [App, Shared]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.grepguru.lockin
+        INFOPLIST_KEY_LSUIElement: NO
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: lockind
+        embed: true
+        copy:
+          destination: executables
+      - target: lockin-agent
+        embed: true
+        copy:
+          destination: executables
+  lockind:
+    type: tool
+    platform: macOS
+    sources: [Daemon, Shared]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.grepguru.lockin.daemon
+  lockin-agent:
+    type: tool
+    platform: macOS
+    sources: [Agent, Shared]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.grepguru.lockin.agent
+  DaemonTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [Tests/DaemonTests]
+    dependencies:
+      - target: lockind
