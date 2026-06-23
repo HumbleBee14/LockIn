@@ -6,7 +6,7 @@ struct LockInApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .frame(minWidth: 760, minHeight: 520)
+                .frame(minWidth: 820, minHeight: 640)
                 .preferredColorScheme(.dark)
         }
         .windowStyle(.titleBar)

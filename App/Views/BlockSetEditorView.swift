@@ -13,6 +13,8 @@ struct BlockSetEditorView: View {
     @State private var showingNewSet = false
     @State private var newSetTitle = ""
     @State private var newSetMode: BlockSetMode = .blocklist
+    @State private var hoveredId: String?
+    @State private var pendingDelete: BlockSet?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -22,28 +24,48 @@ struct BlockSetEditorView: View {
         }
         .sheet(isPresented: $showingImport) { importSheet }
         .sheet(isPresented: $showingNewSet) { newSetSheet }
+        .confirmationDialog(
+            "Delete “\(pendingDelete?.name ?? "")”?",
+            isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) { confirmDelete() }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+        } message: {
+            Text("This removes the block set and its list. Schedules using it will need a new one.")
+        }
+    }
+
+    private func itemCount(_ set: BlockSet) -> Int {
+        set.domains.count + set.appBundleIds.count
+    }
+
+    private func modeHint(_ mode: BlockSetMode) -> String {
+        mode == .allowlist
+            ? "Only these are reachable. Everything else is blocked."
+            : "These are blocked. Everything else stays reachable."
+    }
+
+    private func confirmDelete() {
+        guard let set = pendingDelete else { return }
+        if selectedId == set.id { selectedId = nil }
+        store.removeBlockSet(id: set.id)
+        Task { _ = await store.commit() }
+        pendingDelete = nil
     }
 
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+        VStack(alignment: .leading, spacing: 0) {
             Text("Block Sets")
                 .font(Theme.displayFont(18, .bold))
                 .foregroundStyle(Theme.mist)
-                .padding(.bottom, Theme.Spacing.xs)
-            ForEach(store.config.blockSets, id: \.id) { set in
-                Button {
-                    selectedId = set.id
-                } label: {
-                    HStack {
-                        Text(set.name).foregroundStyle(Theme.mist).lineLimit(1)
-                        Spacer()
-                        Text("\(set.domains.count)").foregroundStyle(Theme.mistDim).font(Theme.monoFont(11))
+                .padding(.bottom, Theme.Spacing.s)
+            ScrollView {
+                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                    ForEach(store.config.blockSets, id: \.id) { set in
+                        setRow(set)
                     }
-                    .padding(.vertical, 6).padding(.horizontal, Theme.Spacing.s)
-                    .background(selectedId == set.id ? Theme.inkRaised : .clear)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
-                .buttonStyle(.plain)
             }
             Divider().padding(.vertical, Theme.Spacing.s)
             Button {
@@ -53,11 +75,35 @@ struct BlockSetEditorView: View {
                     .font(.system(size: 12))
             }
             .buttonStyle(.borderless)
-            Spacer()
         }
         .frame(width: 200)
         .padding(Theme.Spacing.m)
         .background(Theme.inkBase)
+    }
+
+    private func setRow(_ set: BlockSet) -> some View {
+        Button {
+            selectedId = set.id
+        } label: {
+            HStack {
+                Text(set.name).foregroundStyle(Theme.mist).lineLimit(1)
+                Spacer()
+                if hoveredId == set.id {
+                    Image(systemName: "trash")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.ember)
+                        .onTapGesture { pendingDelete = set }
+                } else {
+                    Text("\(itemCount(set))").foregroundStyle(Theme.mistDim).font(Theme.monoFont(11))
+                }
+            }
+            .padding(.vertical, 6).padding(.horizontal, Theme.Spacing.s)
+            .background(selectedId == set.id ? Theme.inkRaised : .clear)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hoveredId = $0 ? set.id : (hoveredId == set.id ? nil : hoveredId) }
     }
 
     private var newSetSheet: some View {
@@ -66,10 +112,12 @@ struct BlockSetEditorView: View {
             TextField("Name (e.g. Work Distractions)", text: $newSetTitle)
                 .textFieldStyle(.roundedBorder)
             Picker("Mode", selection: $newSetMode) {
-                Text("Block these sites").tag(BlockSetMode.blocklist)
-                Text("Allow only these sites").tag(BlockSetMode.allowlist)
+                Text("Blocklist").tag(BlockSetMode.blocklist)
+                Text("Allowlist").tag(BlockSetMode.allowlist)
             }
             .pickerStyle(.radioGroup)
+            Text(modeHint(newSetMode))
+                .font(.system(size: 11)).foregroundStyle(Theme.mistDim)
             HStack {
                 Spacer()
                 Button("Cancel") { showingNewSet = false }
@@ -100,10 +148,12 @@ struct BlockSetEditorView: View {
                 Picker("Mode", selection: Binding(
                     get: { store.config.blockSets[idx].mode },
                     set: { store.setMode($0, forBlockSet: id); Task { _ = await store.commit() } })) {
-                    Text("Block these sites").tag(BlockSetMode.blocklist)
-                    Text("Allow only these").tag(BlockSetMode.allowlist)
+                    Text("Blocklist").tag(BlockSetMode.blocklist)
+                    Text("Allowlist").tag(BlockSetMode.allowlist)
                 }
                 .pickerStyle(.segmented)
+                Text(modeHint(store.config.blockSets[idx].mode))
+                    .font(.system(size: 11)).foregroundStyle(Theme.mistDim)
                 HStack {
                     TextField("Add domain (e.g. youtube.com)", text: $newDomain)
                         .textFieldStyle(.roundedBorder)

@@ -38,7 +38,7 @@ enum Disclosures {
         DisclosureCallout(
             icon: "lock.fill", tint: Theme.ember,
             title: "A locked block can't be cancelled early",
-            message: "Once a website block is active, it holds until the scheduled window ends. There is no off switch — that's the point.")
+            message: "Once started, it holds until the window ends — no off switch.")
     }
 
 }

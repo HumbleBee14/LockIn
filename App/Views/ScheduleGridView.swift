@@ -97,7 +97,7 @@ struct ScheduleGridView: View {
                         Text(timeRange(rule))
                             .font(Theme.monoFont(13))
                             .foregroundStyle(Theme.mist)
-                        Text(rule.blockSetId)
+                        Text(blockSetName(rule.blockSetId))
                             .font(.system(size: 11))
                             .foregroundStyle(Theme.mistDim)
                     }
@@ -119,6 +119,10 @@ struct ScheduleGridView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
         }
+    }
+
+    private func blockSetName(_ id: String) -> String {
+        store.config.blockSets.first { $0.id == id }?.name ?? "—"
     }
 
     private func timeRange(_ r: Rule) -> String {
