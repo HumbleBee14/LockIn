@@ -7,7 +7,10 @@ final class WebsiteBlocker {
     }
 
     func apply(domains: [String], allowlist: Bool) {
-        let expanded = domains.flatMap { Self.expand($0) }
+        // hard safety cap: too many hosts entries can hang mDNSResponder
+        let capped = domains.count > BlockLimits.maxActiveDomains
+            ? Array(domains.prefix(BlockLimits.maxActiveDomains)) : domains
+        let expanded = capped.flatMap { Self.expand($0) }
         let manager = BlockManager(asAllowlist: allowlist, allowLocal: true,
                                    includeCommonSubdomains: true, includeLinkedDomains: false)
         manager?.prepareToAddBlock()

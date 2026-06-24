@@ -31,4 +31,22 @@ final class DomainListImporterTests: XCTestCase {
         let r = DomainListImporter.parse("not-a-domain\nlocalhost\n")
         XCTAssertTrue(r.isEmpty)
     }
+    func testRejectsMalformedDomains() {
+        XCTAssertFalse(DomainListImporter.isValidDomain("...."))
+        XCTAssertFalse(DomainListImporter.isValidDomain("a.b c.d"))
+        XCTAssertFalse(DomainListImporter.isValidDomain("-bad.com"))
+        XCTAssertFalse(DomainListImporter.isValidDomain("bad-.com"))
+        XCTAssertFalse(DomainListImporter.isValidDomain("example.123"))
+        XCTAssertTrue(DomainListImporter.isValidDomain("sub.example.co.uk"))
+        XCTAssertTrue(DomainListImporter.isValidDomain("cdn9.servisehost.com"))
+    }
+    func testStripsTrailingDotAndUserInfo() {
+        XCTAssertEqual(DomainListImporter.normalize("reddit.com."), "reddit.com")
+        XCTAssertEqual(DomainListImporter.normalize("user@reddit.com"), "reddit.com")
+    }
+    func testExportRoundTrips() {
+        let domains = ["youtube.com", "reddit.com", "x.com"]
+        let text = DomainListImporter.export(domains)
+        XCTAssertEqual(Set(DomainListImporter.parse(text)), Set(domains))
+    }
 }

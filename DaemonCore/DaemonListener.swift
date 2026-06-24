@@ -66,9 +66,9 @@ final class DaemonXPC: NSObject, LockInDaemonProtocol {
         reply(try? JSONEncoder().encode(controller.statusDTO()))
     }
 
-    func startQuickLock(blockSetId: String, durationSeconds: Double, reply: @escaping (Bool) -> Void) {
+    func startQuickLock(blockSetIds: [String], durationSeconds: Double, reply: @escaping (Bool) -> Void) {
         guard let controller else { reply(false); return }
-        reply(controller.startQuickLock(blockSetId: blockSetId, durationSeconds: durationSeconds))
+        reply(controller.startQuickLock(blockSetIds: blockSetIds, durationSeconds: durationSeconds))
     }
 
     func appendDomainsToActiveBlock(_ domains: [String], reply: @escaping (Bool) -> Void) {
