@@ -60,7 +60,12 @@ struct BlockSetPicker: View {
     }
 
     static func subtitle(_ set: BlockSet) -> String {
-        "\(set.mode == .allowlist ? "Allowlist" : "Blocklist") · \(set.domains.count) site\(set.domains.count == 1 ? "" : "s")"
+        let mode = set.mode == .allowlist ? "Allowlist" : "Blocklist"
+        var parts = ["\(set.domains.count) site\(set.domains.count == 1 ? "" : "s")"]
+        if !set.appBundleIds.isEmpty {
+            parts.append("\(set.appBundleIds.count) app\(set.appBundleIds.count == 1 ? "" : "s")")
+        }
+        return "\(mode) · \(parts.joined(separator: ", "))"
     }
 
     private var popover: some View {

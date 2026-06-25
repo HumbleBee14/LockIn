@@ -68,6 +68,28 @@ final class ScheduleStore: ObservableObject {
         persist()
     }
 
+    // apps are always blocklist; the set's mode governs only its websites
+    @discardableResult
+    func addApps(_ bundleIds: [String], toBlockSet id: String) -> AddOutcome {
+        guard let idx = config.blockSets.firstIndex(where: { $0.id == id }) else {
+            return AddOutcome(added: 0, skippedOverCap: 0)
+        }
+        var existing = Set(config.blockSets[idx].appBundleIds)
+        var added = 0, skipped = 0
+        for b in bundleIds where !b.isEmpty && !existing.contains(b) {
+            if existing.count >= BlockLimits.maxActiveDomains { skipped += 1; continue }
+            config.blockSets[idx].appBundleIds.append(b); existing.insert(b); added += 1
+        }
+        if added > 0 { persist() }
+        return AddOutcome(added: added, skippedOverCap: skipped)
+    }
+
+    func removeApp(_ bundleId: String, fromBlockSet id: String) {
+        guard let idx = config.blockSets.firstIndex(where: { $0.id == id }) else { return }
+        config.blockSets[idx].appBundleIds.removeAll { $0 == bundleId }
+        persist()
+    }
+
     @discardableResult
     func createBlockSet(title: String, mode: BlockSetMode = .blocklist) -> BlockSet {
         let set = BlockSet(id: UUID().uuidString, name: title, domains: [], appBundleIds: [], mode: mode)

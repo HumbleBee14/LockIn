@@ -21,6 +21,26 @@ final class ScheduleStoreTests: XCTestCase {
         XCTAssertEqual(set.mode, .allowlist)
     }
 
+    func testAddAppsDedupesAndRemove() {
+        let store = ScheduleStore(client: DaemonClient(), config: ScheduleConfig(rules: []))
+        let set = store.createBlockSet(title: "Focus")
+        _ = store.addApps(["com.tinyspeck.slackmacgap", "com.hnc.Discord"], toBlockSet: set.id)
+        _ = store.addApps(["com.hnc.Discord", "com.spotify.client"], toBlockSet: set.id)
+        let apps = store.config.blockSets.first { $0.id == set.id }?.appBundleIds ?? []
+        XCTAssertEqual(Set(apps), ["com.tinyspeck.slackmacgap", "com.hnc.Discord", "com.spotify.client"],
+                       "adding apps dedupes by bundle id")
+        store.removeApp("com.hnc.Discord", fromBlockSet: set.id)
+        XCTAssertFalse((store.config.blockSets.first { $0.id == set.id }?.appBundleIds ?? []).contains("com.hnc.Discord"))
+    }
+
+    func testAddAppsIgnoresEmptyBundleIds() {
+        let store = ScheduleStore(client: DaemonClient(), config: ScheduleConfig(rules: []))
+        let set = store.createBlockSet(title: "Focus")
+        let outcome = store.addApps(["", "com.real.app"], toBlockSet: set.id)
+        XCTAssertEqual(outcome.added, 1)
+        XCTAssertEqual(store.config.blockSets.first { $0.id == set.id }?.appBundleIds, ["com.real.app"])
+    }
+
     func testParseDomainListStripsHostsAndComments() {
         let text = """
         # blocklist

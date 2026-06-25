@@ -17,6 +17,7 @@ struct BlockSetEditorView: View {
     @State private var pendingDelete: BlockSet?
     @State private var search = ""
     @State private var showingCapAlert = false
+    @State private var showingAppPicker = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -26,6 +27,7 @@ struct BlockSetEditorView: View {
         }
         .sheet(isPresented: $showingImport) { importSheet }
         .sheet(isPresented: $showingNewSet) { newSetSheet }
+        .sheet(isPresented: $showingAppPicker) { appPickerSheet }
         .confirmationDialog(
             "Delete “\(pendingDelete?.name ?? "")”?",
             isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
@@ -207,6 +209,9 @@ struct BlockSetEditorView: View {
                     }
                 }
                 .scrollContentBackground(.hidden)
+                .frame(maxHeight: 200)
+
+                appsSection(id: id, idx: idx)
             }
             .padding(Theme.Spacing.l)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -305,6 +310,68 @@ struct BlockSetEditorView: View {
             _ = await store.importRemoteList(into: id, from: url)
             importing = false
             dismissImport()
+        }
+    }
+
+    private func appsSection(id: String, idx: Int) -> some View {
+        let apps = store.config.blockSets[idx].appBundleIds
+        return VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+            Divider()
+            HStack {
+                Text("Apps").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.mist)
+                Spacer()
+                Button { showingAppPicker = true } label: { Label("Add apps", systemImage: "plus") }
+                    .buttonStyle(.bordered)
+            }
+            Text("Apps are always blocked while this set is active, regardless of the list mode.")
+                .font(.system(size: 11)).foregroundStyle(Theme.mistDim)
+            if apps.isEmpty {
+                Text("No apps yet. Add apps to quit them when they open during a block.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.mistDim)
+            } else {
+                List {
+                    ForEach(apps, id: \.self) { bundleId in
+                        HStack(spacing: Theme.Spacing.s) {
+                            if let icon = AppCatalog.icon(forBundleId: bundleId) {
+                                Image(nsImage: icon).resizable().frame(width: 16, height: 16)
+                            } else {
+                                Image(systemName: "app.dashed").foregroundStyle(Theme.mistDim)
+                            }
+                            Text(appDisplayName(bundleId)).font(.system(size: 12)).foregroundStyle(Theme.mist)
+                            Spacer()
+                            Button(role: .destructive) {
+                                store.removeApp(bundleId, fromBlockSet: id)
+                                Task { _ = await store.commit() }
+                            } label: { Image(systemName: "minus.circle") }
+                                .buttonStyle(.borderless)
+                        }
+                    }
+                }
+                .scrollContentBackground(.hidden)
+                .frame(maxHeight: 160)
+            }
+        }
+    }
+
+    private func appDisplayName(_ bundleId: String) -> String {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId),
+              let bundle = Bundle(url: url) else { return bundleId }
+        return (bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+            ?? (bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)
+            ?? bundleId
+    }
+
+    @ViewBuilder private var appPickerSheet: some View {
+        if let id = selectedId, let idx = store.config.blockSets.firstIndex(where: { $0.id == id }) {
+            AppPickerSheet(
+                alreadyAdded: Set(store.config.blockSets[idx].appBundleIds),
+                onAdd: { bundleIds in
+                    let outcome = store.addApps(bundleIds, toBlockSet: id)
+                    if outcome.hitCap { showingCapAlert = true }
+                    if outcome.added > 0 { Task { _ = await store.commit() } }
+                    showingAppPicker = false
+                },
+                onCancel: { showingAppPicker = false })
         }
     }
 
