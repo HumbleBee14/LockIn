@@ -37,9 +37,9 @@ final class InstallerService: ObservableObject {
     var isInstalled: Bool { daemonStatus == .enabled }
     var needsApproval: Bool { daemonStatus == .requiresApproval || agentStatus == .requiresApproval }
 
-    func unregisterAll() async {
-        try? await daemon.unregister()
-        try? await agent.unregister()
+    func unregisterAll() {
+        try? daemon.unregister()
+        try? agent.unregister()
         refreshStatus()
     }
 

@@ -107,7 +107,7 @@ struct SettingsView: View {
                 uninstallResult = "Couldn't uninstall (a lock may be active)."
                 return
             }
-            await installer.unregisterAll()
+            installer.unregisterAll()
             ConfigPersistence.remove()
             store.config = ScheduleConfig(rules: [])
             uninstalling = false
