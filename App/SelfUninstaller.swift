@@ -7,6 +7,7 @@ enum SelfUninstaller {
     }
 
     // spawns a detached script that outlives the app, then deletes the bundle and itself
+    @MainActor
     static func selfDeleteAndQuit() {
         let bundle = Bundle.main.bundleURL.path
         let script = NSTemporaryDirectory() + "lockin-uninstall.sh"
