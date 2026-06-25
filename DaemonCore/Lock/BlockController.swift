@@ -226,6 +226,7 @@ public final class BlockController {
         let e = EffectiveBlock.resolve(snaps)
         let anyScheduled = snaps.contains { $0.mode == .scheduled }
         let title = snaps.count == 1 ? snaps[0].blockSetTitle : "\(snaps[0].blockSetTitle) +\(snaps.count - 1)"
+        let appsOn = snaps.first?.appliedSettings.appBlockingEnabled ?? false
         return DaemonStatus(
             active: true,
             source: anyScheduled ? "scheduled" : "quick",
@@ -234,6 +235,7 @@ public final class BlockController {
             isAllowlist: e.isAllowlist,
             endsAt: latestEnd(snaps),
             appliedDomains: e.domains,
+            appliedAppBundleIds: appsOn ? e.apps : [],
             nextTriggerDescription: nil,
             pfApplied: blocker.isApplied())
     }

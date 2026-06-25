@@ -8,11 +8,13 @@ public struct DaemonStatus: Codable, Equatable, Sendable {
     public let isAllowlist: Bool
     public let endsAt: Date?            // absolute end for the countdown (both modes)
     public let appliedDomains: [String]
+    public let appliedAppBundleIds: [String]
     public let nextTriggerDescription: String?
     public let pfApplied: Bool          // firewall layer live too (hosts is proven by the lock existing)
 
     public init(active: Bool, source: String?, blockSetId: String? = nil, blockSetTitle: String?, isAllowlist: Bool,
-                endsAt: Date?, appliedDomains: [String], nextTriggerDescription: String?, pfApplied: Bool = false) {
+                endsAt: Date?, appliedDomains: [String], appliedAppBundleIds: [String] = [],
+                nextTriggerDescription: String?, pfApplied: Bool = false) {
         self.active = active
         self.source = source
         self.blockSetId = blockSetId
@@ -20,6 +22,7 @@ public struct DaemonStatus: Codable, Equatable, Sendable {
         self.isAllowlist = isAllowlist
         self.endsAt = endsAt
         self.appliedDomains = appliedDomains
+        self.appliedAppBundleIds = appliedAppBundleIds
         self.nextTriggerDescription = nextTriggerDescription
         self.pfApplied = pfApplied
     }

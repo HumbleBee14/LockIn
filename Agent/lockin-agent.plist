@@ -6,8 +6,6 @@
     <string>com.humblebee.lockin.agent</string>
     <key>BundleProgram</key>
     <string>Contents/MacOS/lockin-agent</string>
-    <key>MachServices</key>
-    <dict><key>com.humblebee.lockin.agent</key><true/></dict>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
     <key>AssociatedBundleIdentifiers</key>

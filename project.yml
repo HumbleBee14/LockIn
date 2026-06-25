@@ -25,6 +25,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.humblebee.lockin
         INFOPLIST_KEY_LSUIElement: NO
         GENERATE_INFOPLIST_FILE: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_ENTITLEMENTS: App/LockIn.entitlements
     dependencies:
       - target: lockind
@@ -35,6 +36,11 @@ targets:
         embed: true
         copy:
           destination: executables
+      - target: LockInNotifier
+        embed: true
+        copy:
+          destination: plugins
+          subpath: Helpers
     postBuildScripts:
       - name: Embed Launchd plists
         basedOnDependencyAnalysis: false
@@ -102,6 +108,16 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.humblebee.lockin.agent
         GENERATE_INFOPLIST_FILE: YES
         CREATE_INFOPLIST_SECTION_IN_BINARY: YES
+  LockInNotifier:
+    type: application
+    platform: macOS
+    sources: [Notifier]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.humblebee.lockin.notifier
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_LSUIElement: YES
+        INFOPLIST_KEY_CFBundleDisplayName: LockIn
   DaemonTests:
     type: bundle.unit-test
     platform: macOS
