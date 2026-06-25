@@ -78,10 +78,10 @@ public final class LaunchObserver {
 
     private static func launchNotifier(appName: String, endsAt: Date?, iconPath: String?) {
         let exe = URL(fileURLWithPath: executablePath())
-        let bin = exe.deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("PlugIns/Helpers/LockInNotifier.app/Contents/MacOS/LockInNotifier")
-        guard FileManager.default.fileExists(atPath: bin.path) else {
-            LockInLog.error("notifier missing at \(bin.path)")
+        let appURL = exe.deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("PlugIns/Helpers/LockInNotifier.app")
+        guard FileManager.default.fileExists(atPath: appURL.path) else {
+            LockInLog.error("notifier missing at \(appURL.path)")
             return
         }
         var args = ["--name", appName]
@@ -90,9 +90,13 @@ public final class LaunchObserver {
             args += ["--ends", f.string(from: endsAt)]
         }
         if let iconPath { args += ["--icon", iconPath] }
-        let task = Process()
-        task.executableURL = bin
-        task.arguments = args
-        do { try task.run() } catch { LockInLog.error("notifier launch failed", error) }
+
+        let config = NSWorkspace.OpenConfiguration()
+        config.arguments = args
+        config.createsNewApplicationInstance = true
+        config.activates = false
+        NSWorkspace.shared.openApplication(at: appURL, configuration: config) { _, error in
+            if let error { LockInLog.error("notifier launch failed", error) }
+        }
     }
 }

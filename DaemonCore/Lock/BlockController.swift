@@ -7,14 +7,20 @@ public final class BlockController {
     private let configStore: ConfigStore
     private let appBlocker: AppBlocking
     private let blocker: WebsiteBlocker
+    private let makeGuard: () -> ClockGuard
     private var guards: [String: ClockGuard] = [:]
 
     init(snapshotStore: LockSnapshotStore, configStore: ConfigStore = .shared,
-         appBlocker: AppBlocking = AppBlocker(), blocker: WebsiteBlocker = WebsiteBlocker()) {
+         appBlocker: AppBlocking = AppBlocker(), blocker: WebsiteBlocker = WebsiteBlocker(),
+         makeGuard: @escaping () -> ClockGuard = {
+             ClockGuard(wall: SystemWallClock(), monotonic: SystemMonotonicClock(),
+                        boot: SystemBootSession(), trusted: TrustedTime.system())
+         }) {
         self.snapshotStore = snapshotStore
         self.configStore = configStore
         self.appBlocker = appBlocker
         self.blocker = blocker
+        self.makeGuard = makeGuard
     }
 
     public static func makeSystemController() -> BlockController {
@@ -24,8 +30,7 @@ public final class BlockController {
 
     private func guardFor(_ id: String) -> ClockGuard {
         if let g = guards[id] { return g }
-        let g = ClockGuard(wall: SystemWallClock(), monotonic: SystemMonotonicClock(),
-                           boot: SystemBootSession(), trusted: TrustedTime.system())
+        let g = makeGuard()
         guards[id] = g
         return g
     }
@@ -128,14 +133,22 @@ public final class BlockController {
 
     // the reconcile tick: heartbeat all, drop expired, apply the effective union, then add newly-due rules
     func reconcile(calendar: Calendar = .current) {
+        reconcile(calendar: calendar, servedExpiryOnly: false)
+    }
+
+    // invariant: servedExpiryOnly lifts only served-expired ad-hoc locks; never evaluates scheduled (wall-time) expiry or new rules
+    func reconcile(calendar: Calendar, servedExpiryOnly: Bool) {
         var snaps = snapshotStore.load().map { guardFor($0.id).heartbeat($0) }
-        let survivors = snaps.filter { !guardFor($0.id).isExpired($0) }
+        let survivors = snaps.filter { snap in
+            if servedExpiryOnly && snap.mode != .adHoc { return true }
+            return !guardFor(snap.id).isExpired(snap)
+        }
         for dropped in snaps where !survivors.contains(where: { $0.id == dropped.id }) {
             guards[dropped.id] = nil
         }
         snaps = survivors
         applyEffective(snaps)
-        addNewlyDueRules(into: &snaps, calendar: calendar)
+        if !servedExpiryOnly { addNewlyDueRules(into: &snaps, calendar: calendar) }
         if snaps.isEmpty {
             try? snapshotStore.clear()
             blocker.clear()

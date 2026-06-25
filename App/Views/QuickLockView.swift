@@ -15,7 +15,7 @@ struct QuickLockView: View {
         ("4 hours", 240), ("8 hours", 480),
     ]
 
-    private let maxMinutes = 23.0 * 60
+    private let maxMinutes = 22.0 * 60
 
     private var effectiveMinutes: Int { draft.effectiveMinutes }
 
@@ -100,9 +100,16 @@ struct QuickLockView: View {
                 Spacer()
                 Text(customLabel).font(Theme.monoFont(13, .semibold)).foregroundStyle(Theme.ember)
             }
-            Slider(value: $draft.customMinutes, in: 1...maxMinutes).tint(Theme.ember)
+            Slider(value: snappedMinutes, in: 1...maxMinutes)
+                .controlSize(.large)
+                .tint(Theme.ember)
         }
         .padding(.top, Theme.Spacing.xs)
+    }
+
+    private var snappedMinutes: Binding<Double> {
+        Binding(get: { draft.customMinutes },
+                set: { draft.customMinutes = $0.rounded() })
     }
 
     private var customLabel: String {

@@ -56,7 +56,10 @@ struct InstallSheet: View {
             installer.registerAgentIfDaemonReady()
             installer.refreshStatus()
             // clear a stale registration error once the required helper is actually approved
-            if installer.daemonStatus == .enabled { installer.lastError = nil }
+            if installer.daemonStatus == .enabled {
+                installer.lastError = nil
+                NotifierPriming.primeOnce()
+            }
         }
     }
 

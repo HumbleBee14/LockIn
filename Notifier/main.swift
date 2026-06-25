@@ -2,11 +2,19 @@ import AppKit
 import UserNotifications
 
 final class NotifierDelegate: NSObject, NSApplicationDelegate {
+    private let safetyTimeout: TimeInterval = 30.0
+
     func applicationDidFinishLaunching(_ notification: Notification) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { NSApp.terminate(nil) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + safetyTimeout) { NSApp.terminate(nil) }
         let args = parseArgs()
-        guard let name = args["name"] else { NSApp.terminate(nil); return }
         let center = UNUserNotificationCenter.current()
+        if args["prime"] != nil {
+            center.requestAuthorization(options: [.alert, .sound]) { _, _ in
+                DispatchQueue.main.async { NSApp.terminate(nil) }
+            }
+            return
+        }
+        guard let name = args["name"] else { NSApp.terminate(nil); return }
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard granted else { DispatchQueue.main.async { NSApp.terminate(nil) }; return }
             let content = UNMutableNotificationContent()
@@ -39,7 +47,7 @@ final class NotifierDelegate: NSObject, NSApplicationDelegate {
 }
 
 let app = NSApplication.shared
-app.setActivationPolicy(.prohibited)
+app.setActivationPolicy(.accessory)
 let delegate = NotifierDelegate()
 app.delegate = delegate
 app.run()
