@@ -33,7 +33,7 @@ struct InstallSheet: View {
                 Button("Approve in System Settings") { installer.openLoginItems() }
                     .buttonStyle(.borderedProminent).tint(Theme.ember)
             } else {
-                Button("Install") { installer.registerAll() }
+                Button("Install") { Task { await gate.install() } }
                     .buttonStyle(.borderedProminent).tint(Theme.ember)
             }
 

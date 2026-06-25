@@ -10,7 +10,7 @@
 
 NSString* const kPfctlExecutablePath = @"/sbin/pfctl";
 NSString* const kPFConfPath = @"/etc/pf.conf";
-NSString* const kPFAnchorCommand = @"anchor \"com.grepguru.lockin\"";
+NSString* const kPFAnchorCommand = @"anchor \"com.humblebee.lockin\"";
 
 @implementation PacketFilter
 
@@ -42,7 +42,7 @@ NSFileHandle* appendFileHandle;
 	 "set skip on lo0\n"
 	 "\n"
 	 "#\n"
-	 "# com.grepguru.lockin ruleset for LockIn blocks\n"
+	 "# com.humblebee.lockin ruleset for LockIn blocks\n"
 	 "#\n"];
 
 	if (isAllowlist) {
@@ -115,7 +115,7 @@ NSFileHandle* appendFileHandle;
 		[self addAllowlistFooter: filterConfiguration];
 	}
 
-	[filterConfiguration writeToFile: @"/etc/pf.anchors/com.grepguru.lockin" atomically: true encoding: NSUTF8StringEncoding error: nil];
+	[filterConfiguration writeToFile: @"/etc/pf.anchors/com.humblebee.lockin" atomically: true encoding: NSUTF8StringEncoding error: nil];
 }
 
 - (void)enterAppendMode {
@@ -125,7 +125,7 @@ NSFileHandle* appendFileHandle;
     }
 
     // open the file and prepare to write to the very bottom (no footer since it's not an allowlist)
-    appendFileHandle = [NSFileHandle fileHandleForWritingAtPath: @"/etc/pf.anchors/com.grepguru.lockin"];
+    appendFileHandle = [NSFileHandle fileHandleForWritingAtPath: @"/etc/pf.anchors/com.humblebee.lockin"];
     if (!appendFileHandle) {
         NSLog(@"ERROR: Failed to get handle for pf.anchors file while attempting to append rules");
         return;
@@ -148,7 +148,7 @@ NSFileHandle* appendFileHandle;
     // open the file and prepare to write to the very bottom (no footer since it's not an allowlist)
     // NOTE FOR FUTURE: NSFileHandle can't append lines to the middle of the file anyway,
     // would need to read in the whole thing + write out again
-    NSFileHandle* fileHandle = [NSFileHandle fileHandleForWritingAtPath: @"/etc/pf.anchors/com.grepguru.lockin"];
+    NSFileHandle* fileHandle = [NSFileHandle fileHandleForWritingAtPath: @"/etc/pf.anchors/com.humblebee.lockin"];
     if (!fileHandle) {
         NSLog(@"ERROR: Failed to get handle for pf.anchors file while attempting to append rules");
         return;
@@ -221,12 +221,12 @@ NSFileHandle* appendFileHandle;
 	NSError* err;
 	NSString* token = [self readPFToken: &err];
 
-	[@"" writeToFile: @"/etc/pf.anchors/com.grepguru.lockin" atomically: true encoding: NSUTF8StringEncoding error: nil];
+	[@"" writeToFile: @"/etc/pf.anchors/com.humblebee.lockin" atomically: true encoding: NSUTF8StringEncoding error: nil];
 	NSString* mainConf = [NSString stringWithContentsOfFile: @"/etc/pf.conf" encoding: NSUTF8StringEncoding error: nil];
 	NSArray* lines = [mainConf componentsSeparatedByString: @"\n"];
 	NSMutableString* newConf = [NSMutableString stringWithCapacity: [mainConf length]];
 	for (NSString* line in lines) {
-		if ([line rangeOfString: @"com.grepguru.lockin"].location == NSNotFound) {
+		if ([line rangeOfString: @"com.humblebee.lockin"].location == NSNotFound) {
 			[newConf appendFormat: @"%@\n", line];
 		}
 	}
@@ -250,10 +250,10 @@ NSFileHandle* appendFileHandle;
 - (void)addSelfControlConfig {
 	NSMutableString* pfConf = [NSMutableString stringWithContentsOfFile: @"/etc/pf.conf" encoding: NSUTF8StringEncoding error: nil];
 
-	if ([pfConf rangeOfString: @"/etc/pf.anchors/com.grepguru.lockin"].location == NSNotFound) {
+	if ([pfConf rangeOfString: @"/etc/pf.anchors/com.humblebee.lockin"].location == NSNotFound) {
 		[pfConf appendString: @"\n"
-		 "anchor \"com.grepguru.lockin\"\n"
-		 "load anchor \"com.grepguru.lockin\" from \"/etc/pf.anchors/com.grepguru.lockin\"\n"];
+		 "anchor \"com.humblebee.lockin\"\n"
+		 "load anchor \"com.humblebee.lockin\" from \"/etc/pf.anchors/com.humblebee.lockin\"\n"];
 	}
 
 	[pfConf writeToFile: @"/etc/pf.conf" atomically: true encoding: NSUTF8StringEncoding error: nil];
@@ -261,7 +261,7 @@ NSFileHandle* appendFileHandle;
 
 - (BOOL)containsSelfControlBlock {
 	NSString* mainConf = [NSString stringWithContentsOfFile: @"/etc/pf.conf" encoding: NSUTF8StringEncoding error: nil];
-	return mainConf != nil && [mainConf rangeOfString: @"com.grepguru.lockin"].location != NSNotFound;
+	return mainConf != nil && [mainConf rangeOfString: @"com.humblebee.lockin"].location != NSNotFound;
 }
 
 @end

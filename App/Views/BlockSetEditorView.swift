@@ -242,8 +242,10 @@ struct BlockSetEditorView: View {
                 Button("Fetch") { fetchRemote() }
                     .disabled(importURL.isEmpty || importing)
             }
-            Button("Import from file…") { importFromFile() }
-                .buttonStyle(.borderless)
+            Button { importFromFile() } label: {
+                Label("Import from file…", systemImage: "doc.badge.plus")
+            }
+            .buttonStyle(.bordered)
             if importing { ProgressView().controlSize(.small) }
             HStack {
                 Spacer()
@@ -285,10 +287,12 @@ struct BlockSetEditorView: View {
     private func importFromFile() {
         guard let id = selectedId else { return }
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.plainText, .commaSeparatedText, .text, .data]
+        panel.allowedContentTypes = [.plainText, .commaSeparatedText, .text, .data, .item]
         panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK, let url = panel.url {
-            _ = store.importFile(into: id, at: url)
+        if panel.runModal() == .OK, let url = panel.url,
+           let text = try? String(contentsOf: url, encoding: .utf8) {
+            let outcome = store.importDomains(into: id, from: text)
+            if outcome.hitCap { showingCapAlert = true }
             Task { _ = await store.commit() }
             dismissImport()
         }

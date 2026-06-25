@@ -23,7 +23,7 @@ final class SchedulerTests: XCTestCase {
     private var nightly: ScheduleConfig {
         ScheduleConfig(rules: [Rule(id: "n", weekdays: [1, 2, 3, 4, 5, 6, 7],
             startHour: 22, startMinute: 0, endHour: 7, endMinute: 0,
-            blockSetId: "social", appBundleIds: [])])
+            blockSetIds: ["social"], appBundleIds: [])])
     }
     func testInsideWindowBeforeMidnight() {
         let d = Scheduler.evaluate(nightly, at: date("2026-06-22T23:30:00Z"), calendar: cal())

@@ -18,6 +18,16 @@ final class DaemonClient: Sendable {
         }
     }
 
+    // true only if the daemon answers AND runs our exact version — a stale/mismatched daemon fails here
+    func ping() async -> Bool {
+        await withCheckedContinuation { cont in
+            let c = connection()
+            let proxy = c.remoteObjectProxyWithErrorHandler { _ in cont.resume(returning: false) }
+                as? LockInDaemonProtocol
+            proxy?.getVersion { version in cont.resume(returning: version == LockInVersion.current) }
+        }
+    }
+
     func status() async -> DaemonStatus? {
         await withCheckedContinuation { cont in
             let c = connection()
@@ -29,13 +39,15 @@ final class DaemonClient: Sendable {
         }
     }
 
-    func startQuickLock(blockSetIds: [String], duration: TimeInterval) async -> Bool {
+    // nil on success; otherwise a short failure reason to show the user
+    func startQuickLock(blockSetIds: [String], duration: TimeInterval) async -> String? {
         await withCheckedContinuation { cont in
             let c = connection()
-            let proxy = c.remoteObjectProxyWithErrorHandler { _ in cont.resume(returning: false) }
-                as? LockInDaemonProtocol
-            proxy?.startQuickLock(blockSetIds: blockSetIds, durationSeconds: duration) { ok in
-                cont.resume(returning: ok)
+            let proxy = c.remoteObjectProxyWithErrorHandler { _ in
+                cont.resume(returning: "Couldn’t reach the blocker. Try again or reinstall the helper.")
+            } as? LockInDaemonProtocol
+            proxy?.startQuickLock(blockSetIds: blockSetIds, durationSeconds: duration) { reason in
+                cont.resume(returning: reason)
             }
         }
     }

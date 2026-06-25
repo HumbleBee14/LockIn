@@ -97,7 +97,7 @@ struct ScheduleGridView: View {
                         Text(timeRange(rule))
                             .font(Theme.monoFont(13))
                             .foregroundStyle(Theme.mist)
-                        Text(blockSetName(rule.blockSetId))
+                        Text(blockSetNames(rule.blockSetIds))
                             .font(.system(size: 11))
                             .foregroundStyle(Theme.mistDim)
                     }
@@ -121,8 +121,9 @@ struct ScheduleGridView: View {
         }
     }
 
-    private func blockSetName(_ id: String) -> String {
-        store.config.blockSets.first { $0.id == id }?.name ?? "—"
+    private func blockSetNames(_ ids: [String]) -> String {
+        let names = ids.compactMap { id in store.config.blockSets.first { $0.id == id }?.name }
+        return names.isEmpty ? "—" : names.joined(separator: ", ")
     }
 
     private func timeRange(_ r: Rule) -> String {

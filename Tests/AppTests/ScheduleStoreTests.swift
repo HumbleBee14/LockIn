@@ -6,7 +6,7 @@ final class ScheduleStoreTests: XCTestCase {
     func testAddAndRemoveRule() {
         let store = ScheduleStore(client: DaemonClient(), config: ScheduleConfig(rules: []))
         let r = Rule(id: "n", weekdays: [1], startHour: 22, startMinute: 0, endHour: 7, endMinute: 0,
-                     blockSetId: "social", appBundleIds: [])
+                     blockSetIds: ["social"], appBundleIds: [])
         store.addRule(r)
         XCTAssertEqual(store.config.rules.count, 1)
         store.removeRule(id: "n")

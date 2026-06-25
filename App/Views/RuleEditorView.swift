@@ -9,7 +9,7 @@ struct RuleEditorView: View {
     @State private var weekdays: Set<Int>
     @State private var start: Date
     @State private var end: Date
-    @State private var blockSetId: String
+    @State private var selectedIds: Set<String>
 
     private let weekdayLabels = ["M", "T", "W", "T", "F", "S", "S"]
 
@@ -23,14 +23,15 @@ struct RuleEditorView: View {
             _weekdays = State(initialValue: Set(r.weekdays))
             _start = State(initialValue: cal.date(bySettingHour: r.startHour, minute: r.startMinute, second: 0, of: Date()) ?? Date())
             _end = State(initialValue: cal.date(bySettingHour: r.endHour, minute: r.endMinute, second: 0, of: Date()) ?? Date())
-            _blockSetId = State(initialValue: r.blockSetId)
+            _selectedIds = State(initialValue: Set(r.blockSetIds))
         } else {
             _weekdays = State(initialValue: [1, 2, 3, 4, 5, 6, 7])
             _start = State(initialValue: cal.date(bySettingHour: 22, minute: 0, second: 0, of: Date()) ?? Date())
             _end = State(initialValue: cal.date(bySettingHour: 7, minute: 0, second: 0, of: Date()) ?? Date())
-            _blockSetId = State(initialValue: store.config.blockSets.first?.id ?? "")
+            _selectedIds = State(initialValue: [])
         }
     }
+
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.l) {
@@ -64,10 +65,8 @@ struct RuleEditorView: View {
             .datePickerStyle(.field)
 
             VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                Text("Block set").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.mistDim)
-                BlockSetPicker(blockSets: store.config.blockSets, selectedId: Binding(
-                    get: { blockSetId.isEmpty ? nil : blockSetId },
-                    set: { blockSetId = $0 ?? "" }))
+                Text("Block sets").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.mistDim)
+                BlockSetPicker(blockSets: store.config.blockSets, selectedIds: $selectedIds)
             }
 
             HStack {
@@ -76,7 +75,7 @@ struct RuleEditorView: View {
                 Button("Save") { save() }
                     .buttonStyle(.borderedProminent)
                     .tint(Theme.ember)
-                    .disabled(weekdays.isEmpty || blockSetId.isEmpty)
+                    .disabled(weekdays.isEmpty || selectedIds.isEmpty)
             }
         }
         .padding(Theme.Spacing.l)
@@ -91,7 +90,7 @@ struct RuleEditorView: View {
                         weekdays: weekdays.sorted(),
                         startHour: sc.hour ?? 22, startMinute: sc.minute ?? 0,
                         endHour: ec.hour ?? 7, endMinute: ec.minute ?? 0,
-                        blockSetId: blockSetId, appBundleIds: [])
+                        blockSetIds: Array(selectedIds), appBundleIds: [])
         if existing != nil { store.removeRule(id: rule.id) }
         store.addRule(rule)
         onDone()
