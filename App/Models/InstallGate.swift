@@ -14,24 +14,11 @@ final class InstallGate: ObservableObject {
         return await client.ping()
     }
 
-    // invariant: every outcome sets a visible message — never fail silently
-    func install() async {
-        let alive = await client.ping()
-        installer.registerAll(daemonAlive: alive)
-        if installer.lastError != nil { return }
-        guard installer.isReady() else {
-            installer.lastError = "Install didn't take — the blocker isn't registered. Try again."
-            return
-        }
-        guard await pingWithRetry() else {
-            installer.lastError = "Installed, but the blocker isn't responding yet. Wait a moment and try again."
-            return
-        }
+    // approve the required website-blocking helper; the poll resolves the pending action once it's live
+    func approveDaemon() async {
         installer.lastError = nil
-        showingInstall = false
-        let action = pendingAction
-        pendingAction = nil
-        await action?()
+        let alive = await client.ping()
+        installer.registerDaemon(alive: alive)
     }
 
     private func pingWithRetry(attempts: Int = 5) async -> Bool {
@@ -53,12 +40,11 @@ final class InstallGate: ObservableObject {
         }
     }
 
-    // called by the install sheet whenever status changes; runs the pending action once ready
+    // runs the pending action once the required daemon is live; called by Continue and the poll
     func resolveIfReady() {
-        // once the daemon is approved, register the agent on this tick (can't be done in the same tick as the daemon)
-        installer.registerAgentIfDaemonReady()
+        guard installer.isReady() else { return }
         Task {
-            guard await isReady(), let action = pendingAction else { return }
+            guard await pingWithRetry(), let action = pendingAction else { return }
             pendingAction = nil
             installer.lastError = nil
             showingInstall = false

@@ -11,6 +11,8 @@ struct InstallSheet: View {
         self.installer = gate.installer
     }
 
+    private var daemonReady: Bool { installer.daemonStatus == .enabled }
+
     var body: some View {
         VStack(spacing: Theme.Spacing.l) {
             Image(systemName: "shield.lefthalf.filled")
@@ -19,29 +21,36 @@ struct InstallSheet: View {
             VStack(spacing: Theme.Spacing.s) {
                 Text("Turn on LockIn")
                     .font(Theme.displayFont(22, .bold)).foregroundStyle(Theme.mist)
-                Text("LockIn needs to install a small background helper so it can block sites across every browser. You'll approve it once in System Settings.")
+                Text("Approve each background helper once in System Settings. Website blocking is required; app blocking is optional.")
                     .font(.system(size: 13)).foregroundStyle(Theme.mistDim)
                     .multilineTextAlignment(.center).frame(maxWidth: 380)
             }
 
-            HStack(spacing: Theme.Spacing.l) {
-                statusPill("Blocker", InstallerService.describe(installer.daemonStatus))
-                statusPill("Helper", InstallerService.describe(installer.agentStatus))
+            VStack(spacing: Theme.Spacing.s) {
+                permissionRow(
+                    title: "Website blocking",
+                    subtitle: "Blocks sites across every browser",
+                    required: true,
+                    status: installer.daemonStatus,
+                    approve: { Task { await gate.approveDaemon() } })
+                permissionRow(
+                    title: "App blocking",
+                    subtitle: "Quits blocked apps when they open",
+                    required: false,
+                    status: installer.agentStatus,
+                    approve: { installer.registerAgent() })
             }
-
-            if installer.needsApproval {
-                Button("Approve in System Settings") { installer.openLoginItems() }
-                    .buttonStyle(.borderedProminent).tint(Theme.ember)
-            } else {
-                Button("Install") { Task { await gate.install() } }
-                    .buttonStyle(.borderedProminent).tint(Theme.ember)
-            }
+            .frame(maxWidth: 400)
 
             if let error = installer.lastError {
                 Text(error)
-                    .font(.system(size: 12)).foregroundStyle(Theme.mistDim)
+                    .font(.system(size: 12)).foregroundStyle(Theme.ember)
                     .multilineTextAlignment(.center).frame(maxWidth: 380)
             }
+
+            Button("Continue") { gate.resolveIfReady() }
+                .buttonStyle(.borderedProminent).tint(Theme.ember)
+                .disabled(!daemonReady)
 
             Button("Cancel") { gate.cancel() }
                 .buttonStyle(.borderless)
@@ -50,16 +59,32 @@ struct InstallSheet: View {
         .frame(width: 460)
         .background(Theme.inkBase)
         .onAppear { installer.refreshStatus() }
-        .onReceive(poll) { _ in gate.resolveIfReady() }
+        .onReceive(poll) { _ in
+            installer.registerAgentIfDaemonReady()
+            installer.refreshStatus()
+        }
     }
 
-    private func statusPill(_ label: String, _ value: String) -> some View {
-        VStack(spacing: 2) {
-            Text(label).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.mistDim)
-            Text(value).font(.system(size: 12)).foregroundStyle(Theme.mist)
+    private func permissionRow(title: String, subtitle: String, required: Bool,
+                               status: SMAppService.Status, approve: @escaping () -> Void) -> some View {
+        HStack(spacing: Theme.Spacing.m) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: Theme.Spacing.xs) {
+                    Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.mist)
+                    Text(required ? "Required" : "Optional")
+                        .font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.mistDim)
+                }
+                Text(subtitle).font(.system(size: 11)).foregroundStyle(Theme.mistDim)
+            }
+            Spacer()
+            if status == .enabled {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            } else {
+                Button("Approve", action: approve).buttonStyle(.bordered).tint(Theme.ember)
+            }
         }
-        .padding(.vertical, Theme.Spacing.s).padding(.horizontal, Theme.Spacing.m)
+        .padding(Theme.Spacing.m)
         .background(Theme.inkSurface)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
