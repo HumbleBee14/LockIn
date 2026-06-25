@@ -22,6 +22,13 @@ final class InstallGate: ObservableObject {
         installer.registerDaemon(alive: alive)
     }
 
+    // one Approve covers both helpers — the OS background-activity toggle is per-app, not per-helper
+    func approveAll() async {
+        installer.lastError = nil
+        let alive = await client.ping()
+        installer.approveAll(daemonAlive: alive)
+    }
+
     private func pingWithRetry(attempts: Int = 5) async -> Bool {
         for _ in 0..<attempts {
             if await client.ping() { return true }

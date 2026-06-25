@@ -15,7 +15,7 @@ final class WatchdogTests: XCTestCase {
         let controller = BlockController(snapshotStore: store,
             configStore: ConfigStore(path: FileManager.default.temporaryDirectory
                 .appendingPathComponent("config-wd.plist")),
-            agentBridge: SpyAgentBridge(), blocker: WebsiteBlocker(forceVerified: true))
+            appBlocker: SpyAppBlocker(), blocker: WebsiteBlocker(forceVerified: true))
         controller.applyDecisionIfNeeded(timeResolved: true)
         XCTAssertFalse(store.load().isEmpty,
                       "website lock state is owned by the daemon and unaffected by the agent")

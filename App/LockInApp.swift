@@ -27,4 +27,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
         }
     }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // self-heal a stale registration left by a prior brew/Trash uninstall so it can't wedge re-registration
+        Task { @MainActor in
+            let alive = await DaemonClient().ping()
+            InstallerService().reconcileStaleRegistration(daemonAlive: alive)
+        }
+    }
 }

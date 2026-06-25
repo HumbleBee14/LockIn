@@ -21,24 +21,17 @@ struct InstallSheet: View {
             VStack(spacing: Theme.Spacing.s) {
                 Text("Turn on LockIn")
                     .font(Theme.displayFont(22, .bold)).foregroundStyle(Theme.mist)
-                Text("Approve each background helper once in System Settings. Website blocking is required; app blocking is optional.")
+                Text("Approve LockIn once in System Settings. This turns on both website and app blocking.")
                     .font(.system(size: 13)).foregroundStyle(Theme.mistDim)
                     .multilineTextAlignment(.center).frame(maxWidth: 380)
             }
 
             VStack(spacing: Theme.Spacing.s) {
                 permissionRow(
-                    title: "Website blocking",
-                    subtitle: "Blocks sites across every browser",
-                    required: true,
+                    title: "Background helper",
+                    subtitle: "Blocks sites across every browser and quits blocked apps",
                     status: installer.daemonStatus,
-                    approve: { Task { await gate.approveDaemon() } })
-                permissionRow(
-                    title: "App blocking",
-                    subtitle: "Quits blocked apps when they open",
-                    required: false,
-                    status: installer.agentStatus,
-                    approve: { installer.registerAgent() })
+                    approve: { Task { await gate.approveAll() } })
             }
             .frame(maxWidth: 400)
 
@@ -62,19 +55,18 @@ struct InstallSheet: View {
         .onReceive(poll) { _ in
             installer.registerAgentIfDaemonReady()
             installer.refreshStatus()
+            // clear a stale registration error once the required helper is actually approved
+            if installer.daemonStatus == .enabled { installer.lastError = nil }
         }
     }
 
-    private func permissionRow(title: String, subtitle: String, required: Bool,
+    private func permissionRow(title: String, subtitle: String,
                                status: SMAppService.Status, approve: @escaping () -> Void) -> some View {
         HStack(spacing: Theme.Spacing.m) {
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: Theme.Spacing.xs) {
-                    Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.mist)
-                    Text(required ? "Required" : "Optional")
-                        .font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.mistDim)
-                }
+                Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.mist)
                 Text(subtitle).font(.system(size: 11)).foregroundStyle(Theme.mistDim)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
             if status == .enabled {

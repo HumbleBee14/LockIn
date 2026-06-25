@@ -15,7 +15,7 @@ final class RegisterScheduleInvariantTests: XCTestCase {
             trustedNowAtLastHeartbeat: Date(), servedElapsedAtLastHeartbeat: 0,
             clockSuspicious: false, cumulativeDriftSeconds: 0, bootSessionUUID: "B")])
         let controller = BlockController(snapshotStore: store, configStore: ConfigStore(path: cfgURL),
-                                         agentBridge: SpyAgentBridge(), blocker: WebsiteBlocker(forceVerified: true))
+                                         appBlocker: SpyAppBlocker(), blocker: WebsiteBlocker(forceVerified: true))
         _ = controller.registerSchedule(ScheduleConfig(rules: []))
         let after = store.load()
         XCTAssertEqual(after.first?.appliedDomains, ["youtube.com"], "active snapshot must be immutable")

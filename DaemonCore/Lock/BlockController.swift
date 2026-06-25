@@ -5,15 +5,15 @@ import Foundation
 public final class BlockController {
     private let snapshotStore: LockSnapshotStore
     private let configStore: ConfigStore
-    private let agentBridge: AgentBridging
+    private let appBlocker: AppBlocking
     private let blocker: WebsiteBlocker
     private var guards: [String: ClockGuard] = [:]
 
     init(snapshotStore: LockSnapshotStore, configStore: ConfigStore = .shared,
-         agentBridge: AgentBridging = AgentBridge(), blocker: WebsiteBlocker = WebsiteBlocker()) {
+         appBlocker: AppBlocking = AppBlocker(), blocker: WebsiteBlocker = WebsiteBlocker()) {
         self.snapshotStore = snapshotStore
         self.configStore = configStore
-        self.agentBridge = agentBridge
+        self.appBlocker = appBlocker
         self.blocker = blocker
     }
 
@@ -152,6 +152,11 @@ public final class BlockController {
         _ = blocker.apply(domains: e.domains, allowlist: e.isAllowlist,
                           expandSubdomains: first.appliedSettings.expandSubdomains)
         pushAppUnion(snaps)
+        // invariant: if the active block has apps but the killer stopped, re-arm it — bias toward staying blocked
+        let on = first.appliedSettings.appBlockingEnabled
+        if on && !e.apps.isEmpty && !appBlocker.isMonitoring() {
+            appBlocker.update(active: true, bundleIds: e.apps)
+        }
     }
 
     private func addNewlyDueRules(into snaps: inout [LockSnapshot], calendar: Calendar) {
@@ -285,10 +290,10 @@ public final class BlockController {
     private func pushAppUnion(_ snaps: [LockSnapshot]) {
         let e = EffectiveBlock.resolve(snaps)
         let on = snaps.first?.appliedSettings.appBlockingEnabled ?? false
-        agentBridge.push(BlockedAppSnapshot(active: true, bundleIds: on ? e.apps : []))
+        appBlocker.update(active: on, bundleIds: on ? e.apps : [])
     }
 
     func pushClearedSnapshot() {
-        agentBridge.push(BlockedAppSnapshot(active: false, bundleIds: []))
+        appBlocker.update(active: false, bundleIds: [])
     }
 }

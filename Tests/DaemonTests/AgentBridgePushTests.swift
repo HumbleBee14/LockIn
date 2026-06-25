@@ -2,8 +2,8 @@ import XCTest
 @testable import LockInDaemonCore
 
 @MainActor
-final class AgentBridgePushTests: XCTestCase {
-    private func makeController(settings: SettingsConfig, bridge: AgentBridging,
+final class AppBlockerUpdateTests: XCTestCase {
+    private func makeController(settings: SettingsConfig, spy: SpyAppBlocker,
                                url: URL, cfg: URL) throws -> BlockController {
         try? FileManager.default.removeItem(at: url)
         let cfgStore = ConfigStore(path: cfg)
@@ -12,41 +12,41 @@ final class AgentBridgePushTests: XCTestCase {
         try cfgStore.save(ScheduleConfig(rules: [], blockSets: [set], settings: settings))
         let blocker = WebsiteBlocker(forceVerified: true)
         return BlockController(snapshotStore: LockSnapshotStore(path: url),
-                               configStore: cfgStore, agentBridge: bridge, blocker: blocker)
+                               configStore: cfgStore, appBlocker: spy, blocker: blocker)
     }
 
-    func testStartBlockPushesActiveSnapshot() throws {
-        let bridge = SpyAgentBridge()
+    func testStartBlockUpdatesAppBlockerActive() throws {
+        let spy = SpyAppBlocker()
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("active-push.plist")
         let cfg = FileManager.default.temporaryDirectory.appendingPathComponent("config-push.plist")
-        let controller = try makeController(settings: SettingsConfig(), bridge: bridge, url: url, cfg: cfg)
+        let controller = try makeController(settings: SettingsConfig(), spy: spy, url: url, cfg: cfg)
         XCTAssertTrue(controller.startQuickLock(blockSetIds: ["x"], durationSeconds: 60))
-        XCTAssertEqual(bridge.lastPushed?.active, true)
-        XCTAssertEqual(bridge.lastPushed?.bundleIds, ["com.tinyspeck.slackmacgap"])
+        XCTAssertEqual(spy.lastActive, true)
+        XCTAssertEqual(spy.lastBundleIds, ["com.tinyspeck.slackmacgap"])
         try? FileManager.default.removeItem(at: url)
         try? FileManager.default.removeItem(at: cfg)
     }
 
-    func testAppBlockingDisabledPushesEmptyBundleList() throws {
-        let bridge = SpyAgentBridge()
+    func testAppBlockingDisabledUpdatesEmptyBundleList() throws {
+        let spy = SpyAppBlocker()
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("active-push2.plist")
         let cfg = FileManager.default.temporaryDirectory.appendingPathComponent("config-push2.plist")
         var settings = SettingsConfig()
         settings.appBlockingEnabled = false
-        let controller = try makeController(settings: settings, bridge: bridge, url: url, cfg: cfg)
+        let controller = try makeController(settings: settings, spy: spy, url: url, cfg: cfg)
         XCTAssertTrue(controller.startQuickLock(blockSetIds: ["x"], durationSeconds: 60))
-        XCTAssertEqual(bridge.lastPushed?.active, true)
-        XCTAssertEqual(bridge.lastPushed?.bundleIds, [],
-            "app-blocking OFF must push an empty list so the agent kills nothing")
+        XCTAssertEqual(spy.lastActive, false)
+        XCTAssertEqual(spy.lastBundleIds, [],
+            "app-blocking OFF must update an empty list so the daemon kills nothing")
         try? FileManager.default.removeItem(at: url)
         try? FileManager.default.removeItem(at: cfg)
     }
 
     func testQuickLockRefusedWhenAlreadyActive() throws {
-        let bridge = SpyAgentBridge()
+        let spy = SpyAppBlocker()
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("active-push3.plist")
         let cfg = FileManager.default.temporaryDirectory.appendingPathComponent("config-push3.plist")
-        let controller = try makeController(settings: SettingsConfig(), bridge: bridge, url: url, cfg: cfg)
+        let controller = try makeController(settings: SettingsConfig(), spy: spy, url: url, cfg: cfg)
         XCTAssertTrue(controller.startQuickLock(blockSetIds: ["x"], durationSeconds: 60))
         XCTAssertFalse(controller.startQuickLock(blockSetIds: ["x"], durationSeconds: 60),
             "a second quick lock must be refused while one is active")
@@ -55,7 +55,10 @@ final class AgentBridgePushTests: XCTestCase {
     }
 }
 
-final class SpyAgentBridge: AgentBridging {
-    var lastPushed: BlockedAppSnapshot?
-    func push(_ snapshot: BlockedAppSnapshot) { lastPushed = snapshot }
+final class SpyAppBlocker: AppBlocking {
+    var lastActive: Bool?
+    var lastBundleIds: [String]?
+    func update(active: Bool, bundleIds: [String]) { lastActive = active; lastBundleIds = bundleIds }
+    func isMonitoring() -> Bool { lastActive == true && !(lastBundleIds?.isEmpty ?? true) }
+    func sweepNow() {}
 }

@@ -24,6 +24,18 @@ final class InstallerService: ObservableObject {
         LockInLog.info("unregisterAll done — daemon=\(Self.describe(daemonStatus)) agent=\(Self.describe(agentStatus))")
     }
 
+    // self-heal stale registrations on launch: an .enabled-but-dead daemon is the wedged-BTM symptom that
+    // piles up across brew/Trash uninstalls. Clearing it lets the next register() start from a clean record.
+    // invariant: only the owning app may unregister, and we never clear while a lock could be live (daemonAlive).
+    func reconcileStaleRegistration(daemonAlive: Bool) {
+        refreshStatus()
+        guard daemonStatus == .enabled, !daemonAlive else { return }
+        LockInLog.info("reconcile: daemon .enabled but not alive — clearing stale registration")
+        do { try daemon.unregister() } catch { LockInLog.error("reconcile daemon.unregister failed", error) }
+        do { try agent.unregister() } catch { LockInLog.error("reconcile agent.unregister failed", error) }
+        refreshStatus()
+    }
+
     // the agent registers cleanly only after the daemon is approved; called repeatedly by the poll
     func registerAgentIfDaemonReady() {
         refreshStatus()
@@ -57,6 +69,13 @@ final class InstallerService: ObservableObject {
             lastError = humanError(error)
         }
         refreshStatus()
+    }
+
+    // one OS background-activity toggle covers both helpers (same parent app), so approve them together:
+    // register the required daemon now; the agent follows via registerAgentIfDaemonReady once the daemon is enabled.
+    func approveAll(daemonAlive: Bool) {
+        registerDaemon(alive: daemonAlive)
+        registerAgentIfDaemonReady()
     }
 
     // optional app-blocking helper; needs the daemon approved first so its prompt doesn't collide

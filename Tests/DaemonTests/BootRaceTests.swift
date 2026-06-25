@@ -12,7 +12,7 @@ final class BootRaceTests: XCTestCase {
             trustedNowAtLastHeartbeat: Date(), servedElapsedAtLastHeartbeat: 0,
             clockSuspicious: false, cumulativeDriftSeconds: 0, bootSessionUUID: "B")])
         let controller = BlockController(snapshotStore: store, configStore: ConfigStore(path: tmpConfig()),
-                                         agentBridge: SpyAgentBridge(), blocker: WebsiteBlocker(forceVerified: true))
+                                         appBlocker: SpyAppBlocker(), blocker: WebsiteBlocker(forceVerified: true))
         controller.applyDecisionIfNeeded(timeResolved: false)
         XCTAssertFalse(store.load().isEmpty, "must hold the block until time resolves")
         try? FileManager.default.removeItem(at: url)

@@ -17,7 +17,7 @@ final class SingleLockModelTests: XCTestCase {
         try cfgStore.save(config)
         let blocker = WebsiteBlocker(forceVerified: verifyHosts)
         return (BlockController(snapshotStore: LockSnapshotStore(path: url),
-                                configStore: cfgStore, agentBridge: SpyAgentBridge(), blocker: blocker), url, cfg)
+                                configStore: cfgStore, appBlocker: SpyAppBlocker(), blocker: blocker), url, cfg)
     }
 
     // a rule active for today, full day
