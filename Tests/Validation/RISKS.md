@@ -82,7 +82,7 @@ These remaining acceptance items need root and real browsers/reboots:
 - **#5 forward clock jump** — the unit tests prove the logic; confirm on hardware that
   setting the Date & Time forward during an active block does not lift it.
 - **#7 `testWebsiteBlockUnaffectedByAgentKill`** — start a block, `launchctl bootout
-  gui/$UID/com.grepguru.lockin.agent`, confirm websites stay blocked.
+  gui/$UID/com.humblebee.lockin.agent`, confirm websites stay blocked.
 - **pf anchor rename (DECISIONS.md D7)** — after renaming `org.eyebeam` → a LockIn anchor
   in the engine, re-run the Risk 2 canary to confirm detection + teardown still work.
 
@@ -90,7 +90,7 @@ These remaining acceptance items need root and real browsers/reboots:
 
 ## Phase 3 — Daemon→agent snapshot push direction (needs hardware validation)
 
-`AgentBridge.push` opens an `NSXPCConnection(machServiceName: com.grepguru.lockin.agent)` from the
+`AgentBridge.push` opens an `NSXPCConnection(machServiceName: com.humblebee.lockin.agent)` from the
 root daemon to the per-user agent. Apple confirms LaunchDaemon→LaunchAgent NSXPC works, but a root
 daemon reaching a *GUI-session* agent's Mach service is the awkward direction.
 
