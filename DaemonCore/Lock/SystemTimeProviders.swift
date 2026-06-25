@@ -29,7 +29,8 @@ struct SystemBootSession: BootSession {
 // .pinned requires an SPKI pin per host and fails closed without one; .systemTrust uses standard TLS.
 enum TimeTrustPolicy { case pinned, systemTrust }
 
-final class PinnedTrustedTimeSource: NSObject, TrustedTimeSource, URLSessionDelegate {
+// @unchecked Sendable: the mutable cache below is guarded by `lock`, so cross-thread access is safe
+final class PinnedTrustedTimeSource: NSObject, TrustedTimeSource, URLSessionDelegate, @unchecked Sendable {
     private let hosts: [URL]
     private let pinnedSHA256: [String: [String]]
     private let policy: TimeTrustPolicy
