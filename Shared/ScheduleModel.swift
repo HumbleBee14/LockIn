@@ -1,7 +1,8 @@
 import Foundation
 
 enum BlockLimits {
-    static let maxActiveDomains = 50_000
+    static let maxActiveDomains = 100_000   // cap on stored/added domains per active block
+    static let maxHostsEntries = 150_000    // hard ceiling on lines written to /etc/hosts
 }
 
 struct Rule: Codable, Equatable {
@@ -19,6 +20,7 @@ struct SettingsConfig: Codable, Equatable {
     var clockTamperProtection: Bool = true
     var blockSettingsPaneWhileActive: Bool = false
     var appBlockingEnabled: Bool = true
+    var expandSubdomains: Bool = false
 }
 
 enum BlockSetMode: String, Codable {

@@ -70,11 +70,6 @@ struct QuickLockView: View {
                     Text("\(selectedSets.count) sets · \(combinedDomainCount) unique site\(combinedDomainCount == 1 ? "" : "s")")
                         .font(.system(size: 11)).foregroundStyle(Theme.mistDim)
                 }
-                if combinedDomainCount > BlockLimits.maxActiveDomains {
-                    Label("Over \(BlockLimits.maxActiveDomains) sites — extra entries are skipped to keep macOS responsive.",
-                          systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 11)).foregroundStyle(Theme.ember)
-                }
             }
         }
         .frame(maxWidth: .infinity)

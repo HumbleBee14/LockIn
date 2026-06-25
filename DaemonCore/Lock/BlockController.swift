@@ -65,12 +65,14 @@ public final class BlockController {
     // append-only, blocklist-only edit to the active block (the one change allowed mid-lock)
     func appendDomainsToActiveBlock(_ domains: [String]) -> Bool {
         guard var s = store.load(), s.active, !s.isAllowlist else { return false }
-        var merged = s.appliedDomains
-        for d in domains where !merged.contains(d) { merged.append(d) }
-        guard merged.count != s.appliedDomains.count else { return true }
-        s.appliedDomains = merged
+        let existing = Set(s.appliedDomains)
+        let fresh = domains.filter { !existing.contains($0) }
+        guard !fresh.isEmpty else { return true }
+        guard s.appliedDomains.count + fresh.count <= BlockLimits.maxActiveDomains else { return false }
+        s.appliedDomains.append(contentsOf: fresh)
         try? store.save(s)
-        blocker.apply(domains: merged, allowlist: false)
+        // incremental append: only the new domains touch hosts/pf, not a full rebuild
+        blocker.appendToActiveBlock(newDomains: fresh, expandSubdomains: s.appliedSettings.expandSubdomains)
         return true
     }
 
@@ -81,7 +83,8 @@ public final class BlockController {
     // single-lock activation: write state, apply the block, push the app snapshot
     private func activate(_ state: LockState) {
         try? store.save(state)
-        blocker.apply(domains: state.appliedDomains, allowlist: state.isAllowlist)
+        blocker.apply(domains: state.appliedDomains, allowlist: state.isAllowlist,
+                      expandSubdomains: state.appliedSettings.expandSubdomains)
         pushAppSnapshot(for: state)
     }
 
@@ -133,7 +136,7 @@ public final class BlockController {
     func guardHeartbeat(_ s: LockState) -> LockState { clockGuard.heartbeat(s) }
     func guardIsExpired(_ s: LockState) -> Bool { clockGuard.isExpired(s) }
     func clearBlocking() { blocker.clear() }
-    func reassert(_ s: LockState) { blocker.reassertIfTampered(domains: s.appliedDomains, allowlist: s.isAllowlist) }
+    func reassert(_ s: LockState) { blocker.reassertIfTampered(domains: s.appliedDomains, allowlist: s.isAllowlist, expandSubdomains: s.appliedSettings.expandSubdomains) }
     func currentTrustedWallNow() -> Date {
         if let s = store.load() { return clockGuard.trustedNow(s) }
         return Date()
@@ -152,7 +155,9 @@ public final class BlockController {
     func startScheduled(rule: Rule, windowEnd: Date?) {
         // already enforcing THIS rule: nothing to do (don't reset its timer each tick)
         if let s = store.load(), s.active, s.scheduleRuleId == rule.id { return }
-        guard let set = loadConfig().blockSets.first(where: { $0.id == rule.blockSetId }) else { return }
+        // don't fire if the set was deleted or is empty — nothing to enforce
+        guard let set = loadConfig().blockSets.first(where: { $0.id == rule.blockSetId }),
+              !set.domains.isEmpty else { return }
         let now = Date()
         // a schedule trigger preempts a quick lock or a different active schedule (latest-active-wins)
         let state = LockState(active: true, mode: .scheduled, windowEnd: windowEnd, duration: nil,
@@ -160,7 +165,7 @@ public final class BlockController {
             clockSuspicious: false, bootSessionUUID: SystemBootSession().uuid,
             appliedDomains: set.domains, appliedAppBundleIds: rule.appBundleIds,
             appliedSettings: loadConfig().settings,
-            isAllowlist: set.mode == .allowlist, blockSetTitle: set.name, scheduleRuleId: rule.id)
+            isAllowlist: set.mode == .allowlist, blockSetId: set.id, blockSetTitle: set.name, scheduleRuleId: rule.id)
         activate(state)
     }
 

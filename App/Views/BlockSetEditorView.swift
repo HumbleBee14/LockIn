@@ -16,6 +16,7 @@ struct BlockSetEditorView: View {
     @State private var hoveredId: String?
     @State private var pendingDelete: BlockSet?
     @State private var search = ""
+    @State private var showingCapAlert = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -34,6 +35,11 @@ struct BlockSetEditorView: View {
             Button("Cancel", role: .cancel) { pendingDelete = nil }
         } message: {
             Text("This removes the block set and its list. Schedules using it will need a new one.")
+        }
+        .alert("List is full", isPresented: $showingCapAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("A block set can hold up to \(BlockLimits.maxActiveDomains) sites. Remove some to add more.")
         }
     }
 
@@ -220,6 +226,9 @@ struct BlockSetEditorView: View {
                 .font(Theme.displayFont(18, .bold))
             Text("Paste a list, hosts file, AdBlock filter, or CSV. The format is detected automatically.")
                 .font(.system(size: 12)).foregroundStyle(Theme.mistDim)
+            Label("Very large lists use more memory and can slow DNS. Keep blocklists focused.",
+                  systemImage: "info.circle")
+                .font(.system(size: 11)).foregroundStyle(Theme.mistDim)
             TextEditor(text: $importText)
                 .font(Theme.monoFont(12))
                 .frame(height: 160)
@@ -240,7 +249,10 @@ struct BlockSetEditorView: View {
                 Spacer()
                 Button("Cancel") { dismissImport() }
                 Button("Import pasted") {
-                    if let id = selectedId { store.importDomains(into: id, from: importText) }
+                    if let id = selectedId {
+                        let outcome = store.importDomains(into: id, from: importText)
+                        if outcome.hitCap { showingCapAlert = true }
+                    }
                     Task { _ = await store.commit() }
                     dismissImport()
                 }
@@ -293,11 +305,11 @@ struct BlockSetEditorView: View {
     }
 
     private func addDomain(_ idx: Int) {
+        let id = store.config.blockSets[idx].id
         let parsed = ScheduleStore.parseDomainList(newDomain)
-        for d in parsed where !store.config.blockSets[idx].domains.contains(d) {
-            store.config.blockSets[idx].domains.append(d)
-        }
+        let outcome = store.addDomains(parsed, toBlockSet: id)
         newDomain = ""
-        Task { _ = await store.commit() }
+        if outcome.hitCap { showingCapAlert = true }
+        if outcome.added > 0 { Task { _ = await store.commit() } }
     }
 }

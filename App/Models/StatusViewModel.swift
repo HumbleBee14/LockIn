@@ -42,7 +42,7 @@ final class StatusViewModel: ObservableObject {
     func addDomains(_ domains: [String], persistingTo store: ScheduleStore?) async -> Bool {
         let ok = await client.appendDomains(domains)
         if ok, let store, let id = status?.blockSetId, !id.isEmpty {
-            store.appendDomains(domains, toBlockSet: id)
+            store.addDomains(domains, toBlockSet: id)
             _ = await store.commit()
         }
         await refresh()

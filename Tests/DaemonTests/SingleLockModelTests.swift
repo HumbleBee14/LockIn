@@ -56,6 +56,22 @@ final class SingleLockModelTests: XCTestCase {
         try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg)
     }
 
+    func testScheduleDoesNotFireForEmptyOrMissingSet() throws {
+        let cal = Calendar.current
+        let wd = ((cal.dateComponents([.weekday], from: Date()).weekday! + 5) % 7) + 1
+        let emptyRule = Rule(id: "r1", weekdays: [wd], startHour: 0, startMinute: 0,
+                             endHour: 23, endMinute: 59, blockSetId: "empty", appBundleIds: [])
+        let missingRule = Rule(id: "r2", weekdays: [wd], startHour: 0, startMinute: 0,
+                               endHour: 23, endMinute: 59, blockSetId: "ghost", appBundleIds: [])
+        let empty = BlockSet(id: "empty", name: "Empty", domains: [], appBundleIds: [], mode: .blocklist)
+        let (c, url, cfg) = try controller(ScheduleConfig(rules: [emptyRule, missingRule], blockSets: [empty]), "sched")
+        c.startScheduled(rule: emptyRule, windowEnd: Date().addingTimeInterval(3600))
+        XCTAssertNil(c.currentStatus(), "empty set must not start a scheduled block")
+        c.startScheduled(rule: missingRule, windowEnd: Date().addingTimeInterval(3600))
+        XCTAssertNil(c.currentStatus(), "missing set must not start a scheduled block")
+        try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg)
+    }
+
     func testMultiSetRejectsMixedModes() throws {
         let block = BlockSet(id: "a", name: "A", domains: ["youtube.com"], appBundleIds: [], mode: .blocklist)
         let allow = BlockSet(id: "b", name: "B", domains: ["gmail.com"], appBundleIds: [], mode: .allowlist)

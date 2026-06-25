@@ -75,9 +75,14 @@ BOOL appendMode = NO;
     }
 
 	if(!isAllowlist && ![hostBlockerSet.defaultBlocker containsSelfControlBlock]) {
-        [hostBlockerSet createBackupHostsFile];
-		[hostBlockerSet addSelfControlBlockHeader];
-		hostsBlockingEnabled = YES;
+        // never edit /etc/hosts unless we have a recoverable backup
+        if([hostBlockerSet createBackupHostsFile]) {
+            [hostBlockerSet addSelfControlBlockHeader];
+            hostsBlockingEnabled = YES;
+        } else {
+            NSLog(@"ERROR: hosts backup failed; skipping hosts blocking to stay recoverable");
+            hostsBlockingEnabled = NO;
+        }
 	} else {
 		hostsBlockingEnabled = NO;
 	}
@@ -109,6 +114,8 @@ BOOL appendMode = NO;
     [pf finishAppending];
     [pf refreshPFRules];
     appendMode = NO;
+
+    [SCHelperToolUtilities clearOSDNSCache];
 }
 
 - (void)finalizeBlock {

@@ -6,6 +6,7 @@ struct ActiveLockView: View {
 
     @State private var now = Date()
     @State private var newDomain = ""
+    @State private var showingCapAlert = false
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -32,6 +33,11 @@ struct ActiveLockView: View {
         .padding(Theme.Spacing.xl)
         .background(Theme.inkBase)
         .onReceive(tick) { now = $0 }
+        .alert("List is full", isPresented: $showingCapAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("This block already holds the maximum of \(BlockLimits.maxActiveDomains) sites.")
+        }
     }
 
     private var countdown: String {
@@ -70,6 +76,9 @@ struct ActiveLockView: View {
     private func add() {
         let parsed = ScheduleStore.parseDomainList(newDomain)
         guard !parsed.isEmpty else { return }
+        if (model.status?.appliedDomains.count ?? 0) >= BlockLimits.maxActiveDomains {
+            showingCapAlert = true; newDomain = ""; return
+        }
         newDomain = ""
         Task { _ = await model.addDomains(parsed, persistingTo: store) }
     }

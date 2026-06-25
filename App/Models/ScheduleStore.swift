@@ -44,12 +44,22 @@ final class ScheduleStore: ObservableObject {
         persist()
     }
 
-    func appendDomains(_ domains: [String], toBlockSet id: String) {
-        guard let idx = config.blockSets.firstIndex(where: { $0.id == id }) else { return }
-        for d in domains where !config.blockSets[idx].domains.contains(d) {
-            config.blockSets[idx].domains.append(d)
+    // single gateway for adding domains to a set, capacity-aware so no list can exceed the cap
+    struct AddOutcome { let added: Int; let skippedOverCap: Int; var hitCap: Bool { skippedOverCap > 0 } }
+
+    @discardableResult
+    func addDomains(_ domains: [String], toBlockSet id: String) -> AddOutcome {
+        guard let idx = config.blockSets.firstIndex(where: { $0.id == id }) else {
+            return AddOutcome(added: 0, skippedOverCap: 0)
         }
-        persist()
+        var existing = Set(config.blockSets[idx].domains)
+        var added = 0, skipped = 0
+        for d in domains where !existing.contains(d) {
+            if existing.count >= BlockLimits.maxActiveDomains { skipped += 1; continue }
+            config.blockSets[idx].domains.append(d); existing.insert(d); added += 1
+        }
+        if added > 0 { persist() }
+        return AddOutcome(added: added, skippedOverCap: skipped)
     }
 
     func removeDomain(_ domain: String, fromBlockSet id: String) {
@@ -65,17 +75,14 @@ final class ScheduleStore: ObservableObject {
         return set
     }
 
-    func importDomains(into blockSetId: String, from text: String) {
+    @discardableResult
+    func importDomains(into blockSetId: String, from text: String) -> AddOutcome {
         let parsed = Self.parseDomainList(text)
-        guard !parsed.isEmpty else { return }
-        if let idx = config.blockSets.firstIndex(where: { $0.id == blockSetId }) {
-            var merged = config.blockSets[idx].domains
-            for d in parsed where !merged.contains(d) { merged.append(d) }
-            config.blockSets[idx].domains = merged
-            persist()
-        } else {
-            addBlockSet(BlockSet(id: blockSetId, name: blockSetId, domains: parsed, appBundleIds: []))
+        guard !parsed.isEmpty else { return AddOutcome(added: 0, skippedOverCap: 0) }
+        if config.blockSets.firstIndex(where: { $0.id == blockSetId }) == nil {
+            addBlockSet(BlockSet(id: blockSetId, name: blockSetId, domains: [], appBundleIds: []))
         }
+        return addDomains(parsed, toBlockSet: blockSetId)
     }
 
     // delegates to DomainListImporter, which auto-detects format (plain / hosts / AdBlock / CSV)
