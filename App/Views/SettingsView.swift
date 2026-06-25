@@ -45,12 +45,19 @@ struct SettingsView: View {
     }
 
     private var developerFooter: some View {
-        Link(destination: URL(string: "https://github.com/HumbleBee14/LockIn")!) {
-            Label("GitHub (Open Source)", systemImage: "chevron.left.forwardslash.chevron.right")
+        HStack {
+            Link(destination: URL(string: "https://github.com/HumbleBee14/LockIn")!) {
+                Label("GitHub (Open Source)", systemImage: "chevron.left.forwardslash.chevron.right")
+                    .font(.system(size: 11))
+            }
+            .tint(Theme.mistDim)
+            Spacer()
+            Text(AppVersion.display)
                 .font(.system(size: 11))
+                .foregroundStyle(Theme.mistDim)
+                .textSelection(.enabled)
         }
-        .tint(Theme.mistDim)
-        .frame(maxWidth: 520, alignment: .leading)
+        .frame(maxWidth: 520)
     }
 
     private var recoveryCard: some View {
