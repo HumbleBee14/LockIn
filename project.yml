@@ -1,6 +1,6 @@
 name: LockIn
 options:
-  bundleIdPrefix: com.grepguru.lockin
+  bundleIdPrefix: com.humblebee.lockin
   deploymentTarget:
     macOS: "13.0"
   createIntermediateGroups: true
@@ -22,7 +22,7 @@ targets:
     sources: [App, Shared]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.grepguru.lockin
+        PRODUCT_BUNDLE_IDENTIFIER: com.humblebee.lockin
         INFOPLIST_KEY_LSUIElement: NO
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_ENTITLEMENTS: App/LockIn.entitlements
@@ -45,13 +45,23 @@ targets:
           mkdir -p "$DAEMONS" "$AGENTS"
           cp "$SRCROOT/Daemon/lockind.plist" "$DAEMONS/"
           cp "$SRCROOT/Agent/lockin-agent.plist" "$AGENTS/"
+      - name: Stamp version from git
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          # release CI injects a real MARKETING_VERSION; only derive from git for local 0.0.0 builds
+          [ "$MARKETING_VERSION" != "0.0.0" ] && exit 0
+          GIT_VERSION=$(git -C "$SRCROOT" describe --tags --always --dirty 2>/dev/null | sed 's/^v//')
+          [ -z "$GIT_VERSION" ] && exit 0
+          PLIST="$BUILT_PRODUCTS_DIR/$INFOPLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $GIT_VERSION" "$PLIST" 2>/dev/null || true
   LockInDaemonCore:
     type: library.static
     platform: macOS
     sources: [DaemonCore, Shared]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.grepguru.lockin.daemoncore
+        PRODUCT_BUNDLE_IDENTIFIER: com.humblebee.lockin.daemoncore
         SWIFT_OBJC_BRIDGING_HEADER: DaemonCore/Engine-Bridging-Header.h
         GCC_PREFIX_HEADER: DaemonCore/Engine/Engine-Prefix.pch
         GCC_PRECOMPILE_PREFIX_HEADER: YES
@@ -69,14 +79,14 @@ targets:
       - target: LockInDaemonCore
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.grepguru.lockin.daemon
+        PRODUCT_BUNDLE_IDENTIFIER: com.humblebee.lockin.daemon
   LockInAgentCore:
     type: library.static
     platform: macOS
     sources: [AgentCore, Shared]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.grepguru.lockin.agentcore
+        PRODUCT_BUNDLE_IDENTIFIER: com.humblebee.lockin.agentcore
         SWIFT_OBJC_BRIDGING_HEADER: AgentCore/Agent-Bridging-Header.h
         DEFINES_MODULE: YES
   lockin-agent:
@@ -87,7 +97,7 @@ targets:
       - target: LockInAgentCore
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.grepguru.lockin.agent
+        PRODUCT_BUNDLE_IDENTIFIER: com.humblebee.lockin.agent
   DaemonTests:
     type: bundle.unit-test
     platform: macOS

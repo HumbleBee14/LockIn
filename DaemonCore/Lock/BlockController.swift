@@ -79,7 +79,8 @@ public final class BlockController {
             appliedDomains: r.domains, appliedAppBundleIds: r.apps,
             appliedSettings: config.settings,
             isAllowlist: r.isAllowlist, blockSetId: r.primaryId, blockSetTitle: r.title, scheduleRuleId: nil)
-        return activate(state) ? nil : "The block couldn’t be written to the system hosts file."
+        if activate(state) { return nil }
+        return "Block not applied at the system level. Lock aborted."
     }
 
     // append-only, blocklist-only edit to the active block (the one change allowed mid-lock)

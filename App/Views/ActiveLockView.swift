@@ -49,7 +49,7 @@ struct ActiveLockView: View {
         return Circle()
             .fill(full ? Color.green : Color.orange)
             .frame(width: 8, height: 8)
-            .help(full ? "Both blocking layers are active" : "Hosts blocking active; firewall layer not confirmed")
+            .help(full ? "Fully enforced" : "Partially enforced")
     }
 
     private var countdown: String {
