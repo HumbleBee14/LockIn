@@ -3,14 +3,14 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.grepguru.lockin.daemon</string>
+    <string>com.humblebee.lockin.daemon</string>
     <key>BundleProgram</key>
     <string>Contents/MacOS/lockind</string>
     <key>MachServices</key>
-    <dict><key>com.grepguru.lockin.daemon</key><true/></dict>
+    <dict><key>com.humblebee.lockin.daemon</key><true/></dict>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
     <key>AssociatedBundleIdentifiers</key>
-    <array><string>com.grepguru.lockin</string></array>
+    <array><string>com.humblebee.lockin</string></array>
 </dict>
 </plist>

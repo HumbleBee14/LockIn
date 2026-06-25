@@ -2,8 +2,8 @@ import Foundation
 import Security
 
 enum XPCRequirements {
-    static let daemonServiceName = "com.grepguru.lockin.daemon"
-    static let agentServiceName = "com.grepguru.lockin.agent"
+    static let daemonServiceName = "com.humblebee.lockin.daemon"
+    static let agentServiceName = "com.humblebee.lockin.agent"
 
     // resolved from this binary's own signing team; placeholder fallback fails closed (no cert matches it)
     static let teamIdentifier: String = ownTeamIdentifier()
@@ -13,7 +13,7 @@ enum XPCRequirements {
     static var daemonClientRequirement: String {
         """
         anchor apple generic \
-        and (identifier "com.grepguru.lockin" or identifier "com.grepguru.lockin.agent") \
+        and (identifier "com.humblebee.lockin" or identifier "com.humblebee.lockin.agent") \
         and certificate leaf[subject.OU] = "\(teamIdentifier)"
         """
     }
@@ -21,7 +21,7 @@ enum XPCRequirements {
     static var agentClientRequirement: String {
         """
         anchor apple generic \
-        and identifier "com.grepguru.lockin.daemon" \
+        and identifier "com.humblebee.lockin.daemon" \
         and certificate leaf[subject.OU] = "\(teamIdentifier)"
         """
     }
