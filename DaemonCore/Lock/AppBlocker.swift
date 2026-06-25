@@ -7,8 +7,7 @@ protocol AppBlocking {
     func sweepNow()
 }
 
-// invariant: app-killing runs in the root daemon, never a user agent — a system daemon can't reach a
-// gui-session agent's mach service, and kill() needs no TCC. Soft block: a launched app dies within one poll.
+// invariant: app-killing runs in the root daemon, never a user agent (a system daemon can't reach the gui-session agent)
 final class AppBlocker: AppBlocking, @unchecked Sendable {
     private let lock = NSLock()
     private var blocked: Set<String> = []

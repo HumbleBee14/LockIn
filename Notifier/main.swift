@@ -3,6 +3,7 @@ import UserNotifications
 
 final class NotifierDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { NSApp.terminate(nil) }
         let args = parseArgs()
         guard let name = args["name"] else { NSApp.terminate(nil); return }
         let center = UNUserNotificationCenter.current()
@@ -38,7 +39,7 @@ final class NotifierDelegate: NSObject, NSApplicationDelegate {
 }
 
 let app = NSApplication.shared
-app.setActivationPolicy(.accessory)
+app.setActivationPolicy(.prohibited)
 let delegate = NotifierDelegate()
 app.delegate = delegate
 app.run()

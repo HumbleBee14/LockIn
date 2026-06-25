@@ -14,7 +14,7 @@ public final class LaunchObserver {
                   let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
                   let bid = app.bundleIdentifier else { return }
             let iconPath = Self.writeIcon(for: app)
-            self.notifyIfBlocked(bundleId: bid, appName: app.localizedName, iconPath: iconPath)
+            self.notifyIfBlocked(bundleId: bid, appName: Self.displayName(for: app, bundleId: bid), iconPath: iconPath)
         }
     }
 
@@ -22,11 +22,23 @@ public final class LaunchObserver {
         if let token { NSWorkspace.shared.notificationCenter.removeObserver(token) }
     }
 
-    private func notifyIfBlocked(bundleId: String, appName: String?, iconPath: String?) {
+    private static func displayName(for app: NSRunningApplication, bundleId: String) -> String {
+        if let n = app.localizedName, !n.isEmpty { return n }
+        if let url = app.bundleURL {
+            if let info = Bundle(url: url)?.infoDictionary,
+               let n = (info["CFBundleDisplayName"] ?? info["CFBundleName"]) as? String, !n.isEmpty {
+                return n
+            }
+            return url.deletingPathExtension().lastPathComponent
+        }
+        return bundleId
+    }
+
+    private func notifyIfBlocked(bundleId: String, appName: String, iconPath: String?) {
         fetchStatus { status in
             guard let status, status.active, status.appliedAppBundleIds.contains(bundleId) else { return }
             DispatchQueue.main.async {
-                Self.launchNotifier(appName: appName ?? bundleId, endsAt: status.endsAt, iconPath: iconPath)
+                Self.launchNotifier(appName: appName, endsAt: status.endsAt, iconPath: iconPath)
             }
         }
     }
@@ -56,12 +68,20 @@ public final class LaunchObserver {
         }
     }
 
+    private static func executablePath() -> String {
+        var size: UInt32 = 0
+        _NSGetExecutablePath(nil, &size)
+        var buf = [CChar](repeating: 0, count: Int(size))
+        guard _NSGetExecutablePath(&buf, &size) == 0 else { return CommandLine.arguments[0] }
+        return URL(fileURLWithPath: String(cString: buf)).resolvingSymlinksInPath().path
+    }
+
     private static func launchNotifier(appName: String, endsAt: Date?, iconPath: String?) {
-        let exe = URL(fileURLWithPath: CommandLine.arguments[0])
-        let helpers = exe.deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("PlugIns/Helpers/LockInNotifier.app")
-        guard FileManager.default.fileExists(atPath: helpers.path) else {
-            LockInLog.error("notifier missing at \(helpers.path)")
+        let exe = URL(fileURLWithPath: executablePath())
+        let bin = exe.deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("PlugIns/Helpers/LockInNotifier.app/Contents/MacOS/LockInNotifier")
+        guard FileManager.default.fileExists(atPath: bin.path) else {
+            LockInLog.error("notifier missing at \(bin.path)")
             return
         }
         var args = ["--name", appName]
@@ -70,11 +90,9 @@ public final class LaunchObserver {
             args += ["--ends", f.string(from: endsAt)]
         }
         if let iconPath { args += ["--icon", iconPath] }
-        let config = NSWorkspace.OpenConfiguration()
-        config.arguments = args
-        config.activates = false
-        NSWorkspace.shared.openApplication(at: helpers, configuration: config) { _, error in
-            if let error { LockInLog.error("notifier launch failed", error) }
-        }
+        let task = Process()
+        task.executableURL = bin
+        task.arguments = args
+        do { try task.run() } catch { LockInLog.error("notifier launch failed", error) }
     }
 }

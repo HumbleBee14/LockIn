@@ -52,11 +52,15 @@ struct BlockSetPicker: View {
     }
 
     private var detail: String {
-        var seen = Set<String>()
-        for set in selected { for d in set.domains { seen.insert(d) } }
-        let n = seen.count
+        var seenD = Set<String>(), seenA = Set<String>()
+        for set in selected {
+            for d in set.domains { seenD.insert(d) }
+            for a in set.appBundleIds { seenA.insert(a) }
+        }
         let mode = lockedMode == .allowlist ? "Allowlist" : "Blocklist"
-        return "\(mode) · \(n) site\(n == 1 ? "" : "s")"
+        var parts = ["\(seenD.count) site\(seenD.count == 1 ? "" : "s")"]
+        if !seenA.isEmpty { parts.append("\(seenA.count) app\(seenA.count == 1 ? "" : "s")") }
+        return "\(mode) · \(parts.joined(separator: ", "))"
     }
 
     static func subtitle(_ set: BlockSet) -> String {

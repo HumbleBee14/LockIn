@@ -26,8 +26,10 @@ struct RuleEditorView: View {
             _selectedIds = State(initialValue: Set(r.blockSetIds))
         } else {
             _weekdays = State(initialValue: [1, 2, 3, 4, 5, 6, 7])
-            _start = State(initialValue: cal.date(bySettingHour: 22, minute: 0, second: 0, of: Date()) ?? Date())
-            _end = State(initialValue: cal.date(bySettingHour: 7, minute: 0, second: 0, of: Date()) ?? Date())
+            let nextHour = cal.date(byAdding: .hour, value: 1,
+                to: cal.date(bySettingHour: cal.component(.hour, from: Date()), minute: 0, second: 0, of: Date()) ?? Date()) ?? Date()
+            _start = State(initialValue: nextHour)
+            _end = State(initialValue: cal.date(byAdding: .hour, value: 1, to: nextHour) ?? nextHour)
             _selectedIds = State(initialValue: [])
         }
     }
