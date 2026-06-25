@@ -10,7 +10,11 @@ final class AgentBridge: AgentBridging {
         let connection = NSXPCConnection(machServiceName: XPCRequirements.agentServiceName, options: [])
         connection.remoteObjectInterface = NSXPCInterface(with: LockInAgentProtocol.self)
         connection.resume()
-        (connection.remoteObjectProxy as? LockInAgentProtocol)?.updateSnapshot(data) { _ in }
-        connection.invalidate()
+        // invariant: invalidate only after the reply lands, so a dropped "clear" push isn't lost mid-flight.
+        // The 15s re-push is the backstop if the connection itself fails.
+        let proxy = connection.remoteObjectProxyWithErrorHandler { _ in
+            connection.invalidate()
+        } as? LockInAgentProtocol
+        proxy?.updateSnapshot(data) { _ in connection.invalidate() }
     }
 }

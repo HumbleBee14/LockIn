@@ -1,6 +1,7 @@
 import XCTest
 @testable import LockInDaemonCore
 
+@MainActor
 final class AgentBridgePushTests: XCTestCase {
     private func makeController(settings: SettingsConfig, bridge: AgentBridging,
                                url: URL, cfg: URL) throws -> BlockController {
@@ -9,10 +10,8 @@ final class AgentBridgePushTests: XCTestCase {
         let set = BlockSet(id: "x", name: "Test", domains: ["youtube.com"],
                            appBundleIds: ["com.tinyspeck.slackmacgap"])
         try cfgStore.save(ScheduleConfig(rules: [], blockSets: [set], settings: settings))
-        let guard_ = ClockGuard(wall: FakeWallClock(Date()), monotonic: FakeMonotonicClock(0),
-                                boot: FakeBootSession("B"), trusted: FakeTrustedTimeSource(nil))
         let blocker = WebsiteBlocker(forceVerified: true)
-        return BlockController(store: LockStateStore(path: url), clockGuard: guard_,
+        return BlockController(snapshotStore: LockSnapshotStore(path: url),
                                configStore: cfgStore, agentBridge: bridge, blocker: blocker)
     }
 

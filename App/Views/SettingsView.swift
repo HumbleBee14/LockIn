@@ -136,19 +136,23 @@ struct SettingsView: View {
             // daemon first: resets hosts + clears root data, refuses if a lock is active
             let ok = await client.prepareUninstall()
             if !ok {
-                let status = await client.status()
-                // a reachable daemon refused => a lock is holding, or its own cleanup failed: block uninstall
-                if status?.active == true {
+                switch await client.statusResult() {
+                case .answered(let status) where status.active:
                     uninstalling = false
                     uninstallResult = "A lock is active — uninstall is blocked until it ends."
                     return
-                }
-                if status != nil {
+                case .answered:
                     uninstalling = false
                     uninstallResult = "Cleanup failed. Try “Reset hosts to macOS default” first."
                     return
+                case .unreachable where installer.isReady():
+                    // invariant: a registered-but-unreachable daemon may be holding a live lock — never tear down
+                    uninstalling = false
+                    uninstallResult = "Can’t reach the blocker right now. A lock may still be active — try again in a moment."
+                    return
+                case .unreachable:
+                    break // no daemon registered (never installed / already gone): safe to clear app-side data
                 }
-                // no daemon to reach (never installed / already gone): still clear app-side data and finish
             }
             installer.unregisterAll()
             ConfigPersistence.remove()

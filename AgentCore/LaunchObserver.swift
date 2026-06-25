@@ -2,7 +2,14 @@ import Foundation
 import AppKit
 
 public final class LaunchObserver {
-    private var snapshot = BlockedAppSnapshot(active: false, bundleIds: [])
+    // invariant: snapshot is read on the main-queue launch handler and written from the XPC queue;
+    // the lock makes that access a non-race (Swift 6 strict concurrency would otherwise reject it).
+    private let lock = NSLock()
+    private var _snapshot = BlockedAppSnapshot(active: false, bundleIds: [])
+    private var snapshot: BlockedAppSnapshot {
+        get { lock.lock(); defer { lock.unlock() }; return _snapshot }
+        set { lock.lock(); _snapshot = newValue; lock.unlock() }
+    }
     private var token: NSObjectProtocol?
 
     public init() {}
@@ -13,7 +20,8 @@ public final class LaunchObserver {
     }
 
     public func shouldTerminate(bundleId: String) -> Bool {
-        snapshot.active && snapshot.bundleIds.contains(bundleId)
+        let s = snapshot
+        return s.active && s.bundleIds.contains(bundleId)
     }
 
     // didLaunch misses apps already open at block start, so sweep them here

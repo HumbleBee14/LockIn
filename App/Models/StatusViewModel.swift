@@ -3,11 +3,15 @@ import Foundation
 @MainActor
 final class StatusViewModel: ObservableObject {
     @Published var status: DaemonStatus?
+    @Published var reachable = true
     private let client: DaemonClient
 
     init(client: DaemonClient) { self.client = client }
 
     var isActive: Bool { status?.active ?? false }
+
+    // unknown daemon state must not present as "safe to tear down"
+    var stateIsKnown: Bool { reachable }
 
     var canAddDomains: Bool { isActive && !(status?.isAllowlist ?? false) }
 
@@ -32,7 +36,10 @@ final class StatusViewModel: ObservableObject {
     }
 
     func refresh() async {
-        status = await client.status()
+        switch await client.statusResult() {
+        case .answered(let s): status = s; reachable = true
+        case .unreachable: reachable = false
+        }
     }
 
     // nil on success; otherwise the failure reason to surface

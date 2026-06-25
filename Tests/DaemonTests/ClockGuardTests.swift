@@ -125,17 +125,44 @@ final class ClockGuardTests: XCTestCase {
             "online time bounded by monotonic cap; a forged far-future reading cannot end the block")
     }
 
-    func testTamperProtectionOffTrustsWallClock() {
+    func testForgedOnlineAfterRebootCannotEndScheduledBlockEarly() {
         let start = Date(timeIntervalSince1970: 0)
         let end = Date(timeIntervalSince1970: 5 * 3600)
         var s = scheduled(windowEnd: end, anchorWall: start, boot: "B1")
-        s.appliedSettings.clockTamperProtection = false
-        let (g, w, m, _) = makeGuard(wall: start, mono: 0, boot: "B1", trusted: nil)
-        m.seconds = 60
-        w.now = end.addingTimeInterval(60)
-        s = g.heartbeat(s)
-        XCTAssertTrue(g.isExpired(s), "with tamper protection off, the wall clock past window-end expires it")
-        XCTAssertFalse(s.clockSuspicious, "tamper protection off never flags suspicion")
+        let (g1, _, m1, _) = makeGuard(wall: start, mono: 0, boot: "B1", trusted: nil)
+        m1.seconds = 60
+        s = g1.heartbeat(s)
+        XCTAssertEqual(s.servedElapsedAtLastHeartbeat, 60, accuracy: 1)
+        let forgedFuture = end.addingTimeInterval(3600)
+        let (g2, _, m2, _) = makeGuard(wall: forgedFuture, mono: 0, boot: "B2", trusted: forgedFuture)
+        m2.seconds = 5
+        s = g2.heartbeat(s)
+        XCTAssertFalse(g2.isExpired(s),
+            "a forged-future online reading after a reboot must be capped by served elapsed, not laundered")
+    }
+
+    func testTamperProtectionOffExpiresOnGenuineElapseNotForwardJump() {
+        let start = Date(timeIntervalSince1970: 0)
+        let end = Date(timeIntervalSince1970: 5 * 3600)
+        // forward jump: wall says past the window end but monotonic barely advanced — must NOT expire
+        var jump = scheduled(windowEnd: end, anchorWall: start, boot: "B1")
+        jump.appliedSettings.clockTamperProtection = false
+        let (g1, w1, m1, _) = makeGuard(wall: start, mono: 0, boot: "B1", trusted: nil)
+        m1.seconds = 60
+        w1.now = end.addingTimeInterval(60)
+        jump = g1.heartbeat(jump)
+        XCTAssertFalse(g1.isExpired(jump),
+            "even with protection off, the served floor blocks a forward-jump from expiring a lock early")
+        XCTAssertFalse(jump.clockSuspicious, "tamper protection off never flags suspicion")
+
+        // genuine elapse: monotonic actually advanced 5h alongside the wall — must expire
+        var real = scheduled(windowEnd: end, anchorWall: start, boot: "B1")
+        real.appliedSettings.clockTamperProtection = false
+        let (g2, w2, m2, _) = makeGuard(wall: start, mono: 0, boot: "B1", trusted: nil)
+        m2.seconds = 5 * 3600
+        w2.now = end
+        real = g2.heartbeat(real)
+        XCTAssertTrue(g2.isExpired(real), "a genuine 5h elapse with protection off still ends the window")
     }
 
     func testSingleModestForwardJumpTripsSuspicion() {

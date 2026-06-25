@@ -19,7 +19,8 @@ final class DaemonRuntime {
             DispatchQueue.main.async { self?.evaluate() }
         })
         powerNotifier?.start()
-        let t = Timer(timeInterval: 15.0, repeats: true) { [weak self] _ in
+        // 5s keeps the tamper-reassert window tight; hosts/pf self-heal and the agent re-arms within one tick
+        let t = Timer(timeInterval: 5.0, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.evaluate() }
         }
         RunLoop.main.add(t, forMode: .common)

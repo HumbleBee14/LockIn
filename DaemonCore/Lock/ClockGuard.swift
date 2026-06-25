@@ -23,12 +23,14 @@ final class ClockGuard {
         let liveDelta = max(0, now - anchorMonotonic)
         let served = s.servedElapsedAtLastHeartbeat + liveDelta
 
-        // clock-tamper protection off (user setting): trust wall directly; served still tracks monotonic
+        // clock-tamper protection off (user setting): lenient, not wide-open. Trust normal wall advance,
+        // but still cap at the monotonic served floor so a forward jump can't instantly expire a lock.
         if !s.appliedSettings.clockTamperProtection {
+            let servedFloor = s.anchorWallTime.addingTimeInterval(served + tickSlack)
             s.servedElapsedAtLastHeartbeat = served
-            s.trustedNowAtLastHeartbeat = wall.now
+            s.trustedNowAtLastHeartbeat = min(wall.now, servedFloor)
             s.bootSessionUUID = boot.uuid
-            s.anchorWallTime = wall.now
+            s.anchorWallTime = sameBoot ? s.anchorWallTime : wall.now
             anchorMonotonic = now
             return s
         }
@@ -60,6 +62,39 @@ final class ClockGuard {
         return s
     }
 
+    // per-snapshot overloads reuse the LockState math exactly so the two paths can't diverge
+    func heartbeat(_ snap: LockSnapshot) -> LockSnapshot {
+        var state = LockState(active: true, mode: snap.mode, windowEnd: snap.windowEnd, duration: snap.duration,
+            anchorWallTime: snap.anchorWallTime, trustedNowAtLastHeartbeat: snap.trustedNowAtLastHeartbeat,
+            servedElapsedAtLastHeartbeat: snap.servedElapsedAtLastHeartbeat, clockSuspicious: snap.clockSuspicious,
+            bootSessionUUID: snap.bootSessionUUID, appliedDomains: snap.appliedDomains,
+            appliedAppBundleIds: snap.appliedAppBundleIds, appliedSettings: snap.appliedSettings,
+            isAllowlist: snap.isAllowlist, blockSetId: snap.blockSetId, blockSetTitle: snap.blockSetTitle,
+            scheduleRuleId: snap.mode == .scheduled ? snap.id : nil)
+        state.cumulativeDriftSeconds = snap.cumulativeDriftSeconds
+        let beat = heartbeat(state)
+        var out = snap
+        out.windowEnd = beat.windowEnd
+        out.anchorWallTime = beat.anchorWallTime
+        out.trustedNowAtLastHeartbeat = beat.trustedNowAtLastHeartbeat
+        out.servedElapsedAtLastHeartbeat = beat.servedElapsedAtLastHeartbeat
+        out.clockSuspicious = beat.clockSuspicious
+        out.cumulativeDriftSeconds = beat.cumulativeDriftSeconds
+        out.bootSessionUUID = beat.bootSessionUUID
+        return out
+    }
+
+    func isExpired(_ snap: LockSnapshot) -> Bool {
+        switch snap.mode {
+        case .adHoc:
+            guard let d = snap.duration else { return true }
+            return snap.servedElapsedAtLastHeartbeat >= d
+        case .scheduled:
+            guard let end = snap.windowEnd else { return true }
+            return snap.trustedNowAtLastHeartbeat >= end
+        }
+    }
+
     func trustedNow(_ s: LockState) -> Date { s.trustedNowAtLastHeartbeat }
 
     func hasTrustedTime() -> Bool { trusted.fetch() != nil }
@@ -83,7 +118,11 @@ final class ClockGuard {
             return s.trustedNowAtLastHeartbeat.addingTimeInterval(liveDelta)
         }
         if let onlineNow = trusted.fetch() {
-            return sameBoot ? min(onlineNow, sameBootCeiling) : onlineNow
+            // anti-bypass invariant: online is tightening-only — never above the cap, EVEN across boot.
+            // Cross-boot the cap is the served floor (monotonic survives reboot; powered-off time doesn't),
+            // so a forged-future online reading from an admin MITM can't launder the clock past the reboot.
+            let crossBootCeiling = s.anchorWallTime.addingTimeInterval(s.servedElapsedAtLastHeartbeat + liveDelta + tickSlack)
+            return min(onlineNow, sameBoot ? sameBootCeiling : crossBootCeiling)
         }
         if sameBoot {
             return min(wall.now, sameBootCeiling)

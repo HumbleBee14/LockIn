@@ -29,6 +29,10 @@ struct RootView: View {
         Group {
             if statusModel.isActive {
                 ActiveLockView(model: statusModel, store: store)
+            } else if !statusModel.stateIsKnown && gate.installer.isReady() {
+                // bias toward blocked: a REGISTERED daemon we can't reach may be holding a live lock —
+                // never drop to controls. A not-yet-installed daemon falls through to the normal UI.
+                DaemonUnreachableView()
             } else {
                 splitView
             }

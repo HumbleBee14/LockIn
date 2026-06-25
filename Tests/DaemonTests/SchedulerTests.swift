@@ -41,4 +41,16 @@ final class SchedulerTests: XCTestCase {
         let d = Scheduler.evaluate(nightly, at: date("2026-06-22T23:30:00Z"), calendar: cal())
         XCTAssertEqual(d.windowEnd, date("2026-06-23T07:00:00Z"))
     }
+
+    func testOverlappingRulesPickLatestEndNotFirstInArray() {
+        let shortFirst = Rule(id: "short", weekdays: [1, 2, 3, 4, 5, 6, 7],
+            startHour: 9, startMinute: 0, endHour: 10, endMinute: 0, blockSetIds: ["a"], appBundleIds: [])
+        let longSecond = Rule(id: "long", weekdays: [1, 2, 3, 4, 5, 6, 7],
+            startHour: 9, startMinute: 0, endHour: 17, endMinute: 0, blockSetIds: ["b"], appBundleIds: [])
+        let config = ScheduleConfig(rules: [shortFirst, longSecond])
+        let d = Scheduler.evaluate(config, at: date("2026-06-22T09:30:00Z"), calendar: cal())
+        XCTAssertTrue(d.shouldBlock)
+        XCTAssertEqual(d.activeRule?.id, "long", "the later-ending rule must win, regardless of array order")
+        XCTAssertEqual(d.windowEnd, date("2026-06-22T17:00:00Z"))
+    }
 }

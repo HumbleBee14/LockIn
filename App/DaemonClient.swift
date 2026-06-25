@@ -1,5 +1,12 @@
 import Foundation
 
+// tri-state so callers can distinguish "daemon said no lock" from "couldn't reach the daemon".
+// invariant: an unreachable daemon must NEVER read as "unlocked" for any destructive decision.
+enum DaemonReachability {
+    case answered(DaemonStatus)
+    case unreachable
+}
+
 final class DaemonClient: Sendable {
     private func connection() -> NSXPCConnection {
         let c = NSXPCConnection(machServiceName: XPCRequirements.daemonServiceName)
@@ -29,12 +36,22 @@ final class DaemonClient: Sendable {
     }
 
     func status() async -> DaemonStatus? {
+        if case .answered(let s) = await statusResult() { return s }
+        return nil
+    }
+
+    // distinguishes a reachable daemon's answer from an unreachable daemon; a decode failure is unreachable
+    func statusResult() async -> DaemonReachability {
         await withCheckedContinuation { cont in
             let c = connection()
-            let proxy = c.remoteObjectProxyWithErrorHandler { _ in cont.resume(returning: nil) }
+            let proxy = c.remoteObjectProxyWithErrorHandler { _ in cont.resume(returning: .unreachable) }
                 as? LockInDaemonProtocol
             proxy?.getStatus { data in
-                cont.resume(returning: data.flatMap { try? JSONDecoder().decode(DaemonStatus.self, from: $0) })
+                if let data, let s = try? JSONDecoder().decode(DaemonStatus.self, from: data) {
+                    cont.resume(returning: .answered(s))
+                } else {
+                    cont.resume(returning: .unreachable)
+                }
             }
         }
     }

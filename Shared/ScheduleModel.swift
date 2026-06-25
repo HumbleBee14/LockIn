@@ -62,7 +62,6 @@ struct Rule: Codable, Equatable {
 
 struct SettingsConfig: Codable, Equatable {
     var clockTamperProtection: Bool = true
-    var blockSettingsPaneWhileActive: Bool = false
     var appBlockingEnabled: Bool = true
     var expandSubdomains: Bool = false
 }

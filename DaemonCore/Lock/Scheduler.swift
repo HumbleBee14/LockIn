@@ -8,12 +8,14 @@ struct Decision: Equatable {
 
 enum Scheduler {
     static func evaluate(_ config: ScheduleConfig, at trustedNow: Date, calendar: Calendar) -> Decision {
+        // overlapping rules: the latest-ending active window wins, so an overlap can never unlock early
+        var best: (rule: Rule, end: Date)?
         for rule in config.rules {
-            if let end = activeWindowEnd(rule, at: trustedNow, calendar: calendar) {
-                return Decision(shouldBlock: true, activeRule: rule, windowEnd: end)
-            }
+            guard let end = activeWindowEnd(rule, at: trustedNow, calendar: calendar) else { continue }
+            if best == nil || end > best!.end { best = (rule, end) }
         }
-        return Decision(shouldBlock: false, activeRule: nil, windowEnd: nil)
+        guard let best else { return Decision(shouldBlock: false, activeRule: nil, windowEnd: nil) }
+        return Decision(shouldBlock: true, activeRule: best.rule, windowEnd: best.end)
     }
 
     static func nextStart(_ config: ScheduleConfig, after now: Date, calendar: Calendar) -> Date? {
@@ -33,6 +35,10 @@ enum Scheduler {
             }
         }
         return earliest
+    }
+
+    static func activeWindowEndPublic(_ rule: Rule, at now: Date, calendar: Calendar) -> Date? {
+        activeWindowEnd(rule, at: now, calendar: calendar)
     }
 
     private static func activeWindowEnd(_ rule: Rule, at now: Date, calendar: Calendar) -> Date? {

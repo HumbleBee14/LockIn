@@ -46,43 +46,55 @@ public final class DaemonListener: NSObject, NSXPCListenerDelegate {
     }
 }
 
+// NSXPC reply blocks are documented thread-safe to invoke from any queue; this box lets us carry one
+// across the hop to the main actor under Swift 6 strict concurrency without a real data race.
+private struct ReplyBox<T>: @unchecked Sendable {
+    let reply: (T) -> Void
+    func callAsFunction(_ value: T) { reply(value) }
+}
+
 final class DaemonXPC: NSObject, LockInDaemonProtocol {
     private let controller: BlockController?
     init(controller: BlockController?) { self.controller = controller }
+
+    // invariant: all controller access runs on main, matching the timer loop, so lock-state RMW can't race
+    private func onMain<T>(_ reply: @escaping (T) -> Void, _ nilValue: T,
+                           _ body: @escaping @MainActor (BlockController) -> T) {
+        let box = ReplyBox(reply: reply)
+        guard let controller else { box(nilValue); return }
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated { box(body(controller)) }
+        }
+    }
 
     func getVersion(reply: @escaping (String) -> Void) {
         reply(LockInVersion.current)
     }
 
     func registerSchedule(_ data: Data, reply: @escaping (Bool) -> Void) {
-        guard let controller, let config = try? JSONDecoder().decode(ScheduleConfig.self, from: data) else {
-            reply(false); return
-        }
-        reply(controller.registerSchedule(config))
+        guard let config = try? JSONDecoder().decode(ScheduleConfig.self, from: data) else { reply(false); return }
+        onMain(reply, false) { $0.registerSchedule(config) }
     }
 
     func getStatus(reply: @escaping (Data?) -> Void) {
-        guard let controller else { reply(nil); return }
-        reply(try? JSONEncoder().encode(controller.statusDTO()))
+        onMain(reply, nil) { try? JSONEncoder().encode($0.statusDTO()) }
     }
 
     func startQuickLock(blockSetIds: [String], durationSeconds: Double, reply: @escaping (String?) -> Void) {
-        guard let controller else { reply("The blocker isn’t running."); return }
-        reply(controller.startQuickLockReason(blockSetIds: blockSetIds, durationSeconds: durationSeconds))
+        onMain(reply, "The blocker isn’t running.") {
+            $0.startQuickLockReason(blockSetIds: blockSetIds, durationSeconds: durationSeconds)
+        }
     }
 
     func appendDomainsToActiveBlock(_ domains: [String], reply: @escaping (Bool) -> Void) {
-        guard let controller else { reply(false); return }
-        reply(controller.appendDomainsToActiveBlock(domains))
+        onMain(reply, false) { $0.appendDomainsToActiveBlock(domains) }
     }
 
     func resetHostsToDefault(reply: @escaping (Bool) -> Void) {
-        guard let controller else { reply(false); return }
-        reply(controller.resetHostsToDefault())
+        onMain(reply, false) { $0.resetHostsToDefault() }
     }
 
     func prepareUninstall(reply: @escaping (Bool) -> Void) {
-        guard let controller else { reply(false); return }
-        reply(controller.prepareUninstall())
+        onMain(reply, false) { $0.prepareUninstall() }
     }
 }

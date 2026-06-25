@@ -1,0 +1,10 @@
+LockIn
+Copyright (C) 2026 Dinesh Yadav
+
+This product includes software developed as part of SelfControl
+(https://github.com/SelfControlApp/selfcontrol), Copyright (C) Charles Stigler
+and contributors, licensed under the GNU General Public License v3.0.
+
+The website-blocking engine under DaemonCore/Engine/ is derived from SelfControl
+and retains its original copyright notices. LockIn as a whole is distributed
+under the GNU General Public License v3.0; see LICENSE.

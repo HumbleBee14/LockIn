@@ -172,7 +172,7 @@ NSFileHandle* appendFileHandle;
 	[self addSelfControlConfig];
 	[self writeConfiguration];
 
-	NSArray* args = [@"-E -f /etc/pf.conf -F states" componentsSeparatedByString: @" "];
+	NSArray* args = @[@"-E", @"-f", @"/etc/pf.conf", @"-F", @"states"];
 
 	NSTask* task = [[NSTask alloc] init];
 	[task setLaunchPath: kPfctlExecutablePath];
@@ -199,7 +199,7 @@ NSFileHandle* appendFileHandle;
 	return [task terminationStatus];
 }
 - (int)refreshPFRules {
-    NSArray* args = [@"-f /etc/pf.conf -F states" componentsSeparatedByString: @" "];
+    NSArray* args = @[@"-f", @"/etc/pf.conf", @"-F", @"states"];
 
     NSTask* task = [[NSTask alloc] init];
     [task setLaunchPath: kPfctlExecutablePath];
@@ -234,13 +234,12 @@ NSFileHandle* appendFileHandle;
 	[newConf appendString: @"\n"];
 	[newConf writeToFile: @"/etc/pf.conf" atomically: true encoding: NSUTF8StringEncoding error: nil];
 
-	NSString* commandString;
+	NSArray* args;
 	if ([token length] && !force) {
-		commandString = [NSString stringWithFormat: @"-X %@ -f /etc/pf.conf", token];
+		args = @[@"-X", token, @"-f", @"/etc/pf.conf"];
 	} else {
-		commandString = @"-d -f /etc/pf.conf";
+		args = @[@"-d", @"-f", @"/etc/pf.conf"];
 	}
-	NSArray* args = [commandString componentsSeparatedByString: @" "];
 
 	NSTask* task = [NSTask launchedTaskWithLaunchPath: kPfctlExecutablePath arguments: args];
 	[task waitUntilExit];

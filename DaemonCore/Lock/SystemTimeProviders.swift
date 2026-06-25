@@ -35,6 +35,13 @@ final class PinnedTrustedTimeSource: NSObject, TrustedTimeSource, URLSessionDele
     private let policy: TimeTrustPolicy
     private let agreementTolerance: TimeInterval = 30
     private let perRequestTimeout: TimeInterval = 4
+    private let cacheValidity: TimeInterval = 120
+
+    // invariant: fetch() must never block the daemon loop, so reads are served from a cache that a
+    // background task refreshes; a forged reading is still bounded by ClockGuard's served-elapsed cap.
+    private let lock = NSLock()
+    private var cachedSample: (date: Date, monotonicAt: Double)?
+    private var refreshing = false
 
     init(hosts: [URL], pinnedSHA256: [String: [String]] = [:], policy: TimeTrustPolicy = .pinned) {
         self.hosts = hosts
@@ -43,6 +50,31 @@ final class PinnedTrustedTimeSource: NSObject, TrustedTimeSource, URLSessionDele
     }
 
     func fetch() -> Date? {
+        refreshInBackgroundIfNeeded()
+        lock.lock(); defer { lock.unlock() }
+        guard let s = cachedSample else { return nil }
+        let elapsed = SystemMonotonicClock().seconds - s.monotonicAt
+        guard elapsed >= 0, elapsed <= cacheValidity else { return nil }
+        return s.date.addingTimeInterval(elapsed)
+    }
+
+    private func refreshInBackgroundIfNeeded() {
+        lock.lock()
+        if refreshing { lock.unlock(); return }
+        refreshing = true
+        lock.unlock()
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self else { return }
+            let sample = self.fetchConsensus()
+            let mono = SystemMonotonicClock().seconds
+            self.lock.lock()
+            if let sample { self.cachedSample = (sample, mono) }
+            self.refreshing = false
+            self.lock.unlock()
+        }
+    }
+
+    private func fetchConsensus() -> Date? {
         let samples = hosts.compactMap { fetchDateHeader(from: $0) }
         guard samples.count >= 2 else { return nil }
         let sorted = samples.sorted()
@@ -108,12 +140,18 @@ final class PinnedTrustedTimeSource: NSObject, TrustedTimeSource, URLSessionDele
 }
 
 enum TrustedTime {
+    // anti-bypass invariant: .pinned rejects admin-installed-root-CA MITM (our threat actor is the admin).
+    // Leaf SPKI pins on CDN hosts can rotate; ClockGuard's served-elapsed cap is the primary defense and
+    // holds even if every host's pin is stale — pinning here is defense-in-depth, not the sole guard.
     static func system() -> PinnedTrustedTimeSource {
         PinnedTrustedTimeSource(
             hosts: [URL(string: "https://www.cloudflare.com")!,
                     URL(string: "https://www.apple.com")!],
-            pinnedSHA256: [:],
-            policy: .systemTrust)
+            pinnedSHA256: [
+                "www.cloudflare.com": ["InW7U3grEKRuwhErwsI/XULSUbEWmteQprf4vp8Oo7Y="],
+                "www.apple.com": ["tkhcoCq9fS0kxe9haZp9eTXk4I3DHivWzpKuZ20xLL8="]
+            ],
+            policy: .pinned)
     }
 }
 

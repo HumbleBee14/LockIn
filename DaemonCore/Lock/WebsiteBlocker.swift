@@ -95,6 +95,17 @@ final class WebsiteBlocker {
         PacketFilter.blockFoundInPF()
     }
 
+    // invariant: detects a live block independent of the state file, so deleting active.plist can't fake "unlocked"
+    func liveBlockPresent() -> Bool {
+        if PacketFilter.blockFoundInPF() { return true }
+        guard let contents = try? String(contentsOfFile: "/etc/hosts", encoding: .utf8) else { return false }
+        let header = "# BEGIN SELFCONTROL BLOCK"
+        let footer = "# END SELFCONTROL BLOCK"
+        guard let h = contents.range(of: header),
+              let f = contents.range(of: footer, range: h.upperBound..<contents.endIndex) else { return false }
+        return contents[h.upperBound..<f.lowerBound].contains("0.0.0.0")
+    }
+
     func reassertIfTampered(domains: [String], allowlist: Bool, expandSubdomains: Bool) {
         // re-apply if a tamper removed the block from EITHER pf or the hosts file mid-window
         let entries = Self.entries(for: domains, expand: expandSubdomains)
