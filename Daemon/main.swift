@@ -1,4 +1,5 @@
 import Foundation
+import ServiceManagement
 import LockInDaemonCore
 
 @MainActor
@@ -8,11 +9,16 @@ final class DaemonRuntime {
     private var powerNotifier: PowerNotifier?
     private var timer: Timer?
 
+    // .../LockIn.app/Contents/MacOS/lockind -> .../LockIn.app
+    private let appBundlePath = URL(fileURLWithPath: CommandLine.arguments[0])
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().path
+
     init() {
         listener = DaemonListener(controller: controller)
     }
 
     func start() {
+        selfCleanIfOrphaned()
         listener.start()
         evaluate()
         powerNotifier = PowerNotifier(onWake: { [weak self] in
@@ -27,8 +33,19 @@ final class DaemonRuntime {
         timer = t
     }
 
+    private var ticksSinceOrphanCheck = 0
+
     private func evaluate() {
         controller.applyDecisionIfNeeded(timeResolved: controller.timeIsResolved())
+        ticksSinceOrphanCheck += 1
+        if ticksSinceOrphanCheck >= 720 { ticksSinceOrphanCheck = 0; selfCleanIfOrphaned() }
+    }
+
+    private func selfCleanIfOrphaned() {
+        guard controller.isOrphaned(appBundlePath: appBundlePath) else { return }
+        _ = controller.prepareUninstall()
+        try? SMAppService.daemon(plistName: "lockind.plist").unregister()
+        exit(0)
     }
 }
 

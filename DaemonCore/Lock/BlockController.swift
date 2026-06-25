@@ -193,12 +193,17 @@ public final class BlockController {
     }
 
     // root-side cleanup for uninstall: reset hosts, clear snapshots + root config. Refused while locked.
-    func prepareUninstall() -> Bool {
+    public func prepareUninstall() -> Bool {
         if isLockHeld() { return false }
         let ok = blocker.resetToSystemDefault()
         try? snapshotStore.clear()
         try? configStore.save(ScheduleConfig(rules: []))
         return ok
+    }
+
+    // invariant: self-clean only when the app bundle is gone AND no lock is held — never tears down a live lock
+    public func isOrphaned(appBundlePath: String) -> Bool {
+        !FileManager.default.fileExists(atPath: appBundlePath) && !isLockHeld()
     }
 
     // invariant: corroborate the snapshot set against live pf/hosts so deleting active.plist can't unlock teardown

@@ -29,9 +29,16 @@ final class DaemonClient: Sendable {
     func ping() async -> Bool {
         await withCheckedContinuation { cont in
             let c = connection()
-            let proxy = c.remoteObjectProxyWithErrorHandler { _ in cont.resume(returning: false) }
-                as? LockInDaemonProtocol
-            proxy?.getVersion { version in cont.resume(returning: version == LockInVersion.current) }
+            let proxy = c.remoteObjectProxyWithErrorHandler { err in
+                LockInLog.error("daemon ping connection failed (service unreachable)", err)
+                cont.resume(returning: false)
+            } as? LockInDaemonProtocol
+            proxy?.getVersion { version in
+                if version != LockInVersion.current {
+                    LockInLog.error("daemon ping: version mismatch app=\(LockInVersion.current) daemon=\(version)")
+                }
+                cont.resume(returning: version == LockInVersion.current)
+            }
         }
     }
 

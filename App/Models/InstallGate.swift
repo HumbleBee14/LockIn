@@ -51,9 +51,12 @@ final class InstallGate: ObservableObject {
                 installer.lastError = "Website blocking isn’t approved yet. Tap Approve above, then allow it in System Settings."
                 return
             }
-            guard await pingWithRetry() else {
-                installer.lastError = "Approved, but the blocker isn’t responding yet. Wait a moment and tap Continue again."
-                return
+            if await pingWithRetry() == false {
+                installer.registerDaemon(alive: false)
+                guard await pingWithRetry() else {
+                    installer.lastError = "Couldn’t start the background service. Quit LockIn and reopen it; if it persists, restart your Mac."
+                    return
+                }
             }
             showingInstall = false
             if let action = pendingAction {

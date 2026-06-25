@@ -18,9 +18,10 @@ final class InstallerService: ObservableObject {
     }
 
     func unregisterAll() {
-        try? daemon.unregister()
-        try? agent.unregister()
+        do { try daemon.unregister() } catch { LockInLog.error("daemon.unregister failed", error) }
+        do { try agent.unregister() } catch { LockInLog.error("agent.unregister failed", error) }
         refreshStatus()
+        LockInLog.info("unregisterAll done — daemon=\(Self.describe(daemonStatus)) agent=\(Self.describe(agentStatus))")
     }
 
     // the agent registers cleanly only after the daemon is approved; called repeatedly by the poll
@@ -28,7 +29,7 @@ final class InstallerService: ObservableObject {
         refreshStatus()
         guard daemonStatus == .enabled else { return }
         if agentStatus == .notRegistered || agentStatus == .notFound {
-            try? agent.register()
+            do { try agent.register() } catch { LockInLog.error("agent.register failed", error) }
             refreshStatus()
         }
     }
@@ -36,12 +37,25 @@ final class InstallerService: ObservableObject {
     // required website-blocking helper; re-registers a stale enabled job that no longer answers
     func registerDaemon(alive: Bool) {
         refreshStatus()
+        LockInLog.info("registerDaemon(alive: \(alive)) — current status=\(Self.describe(daemonStatus))")
         if daemonStatus == .enabled && !alive {
-            try? daemon.unregister()
+            do { try daemon.unregister() }
+            catch { LockInLog.error("daemon.unregister (stale) failed", error); lastError = humanError(error); return }
             refreshStatus()
         }
-        if daemonStatus == .enabled { openLoginItems(); return }
-        do { try daemon.register() } catch { lastError = humanError(error) }
+        if daemonStatus == .enabled {
+            lastError = "macOS reports the service as installed but it isn’t running — its background record is out of sync. Restart your Mac to rebuild it."
+            LockInLog.error("daemon enabled but not alive — launchd job desynced from registration")
+            openLoginItems()
+            return
+        }
+        do {
+            try daemon.register()
+            LockInLog.info("daemon.register() succeeded — status now \(Self.describe(daemon.status))")
+        } catch {
+            LockInLog.error("daemon.register() failed", error)
+            lastError = humanError(error)
+        }
         refreshStatus()
     }
 
@@ -79,8 +93,8 @@ final class InstallerService: ObservableObject {
     private func humanError(_ error: Error) -> String {
         let ns = error as NSError
         if ns.domain == "SMAppServiceErrorDomain" && ns.code == 1 {
-            return "macOS blocked registration. A previous install may be stuck — reset background items in System Settings → Login Items and try again."
+            return "macOS blocked registration (a previous install is stuck). Restart your Mac, then open LockIn again. (\(ns.domain) \(ns.code))"
         }
-        return ns.localizedDescription
+        return "\(ns.localizedDescription) (\(ns.domain) \(ns.code))"
     }
 }
