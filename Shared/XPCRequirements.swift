@@ -10,10 +10,12 @@ enum XPCRequirements {
         ?? (Bundle.main.object(forInfoDictionaryKey: "LOCKIN_TEAM_ID") as? String)
         ?? "REPLACE_TEAMID"
 
+    // invariant: identifiers must match the binaries' ACTUAL codesign identifiers. The app is a bundle
+    // (com.humblebee.lockin); the daemon/agent are command-line tools signed as lockind / lockin-agent.
     static var daemonClientRequirement: String {
         """
         anchor apple generic \
-        and (identifier "com.humblebee.lockin" or identifier "com.humblebee.lockin.agent") \
+        and (identifier "com.humblebee.lockin" or identifier "lockin-agent") \
         and certificate leaf[subject.OU] = "\(teamIdentifier)"
         """
     }
@@ -21,7 +23,7 @@ enum XPCRequirements {
     static var agentClientRequirement: String {
         """
         anchor apple generic \
-        and identifier "com.humblebee.lockin.daemon" \
+        and identifier "lockind" \
         and certificate leaf[subject.OU] = "\(teamIdentifier)"
         """
     }
