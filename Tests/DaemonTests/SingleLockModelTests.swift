@@ -16,8 +16,8 @@ final class SingleLockModelTests: XCTestCase {
         try cfgStore.save(config)
         let guard_ = ClockGuard(wall: FakeWallClock(Date()), monotonic: FakeMonotonicClock(0),
                                 boot: FakeBootSession("B"), trusted: FakeTrustedTimeSource(nil))
-        // tests can't write /etc/hosts or load pf — stub verification so we exercise state/merge logic
-        let blocker = WebsiteBlocker(verify: { _, _ in verifyHosts })
+        // tests can't write /etc/hosts or load pf — force verification so we exercise state/merge logic
+        let blocker = WebsiteBlocker(forceVerified: verifyHosts)
         return (BlockController(store: LockStateStore(path: url), clockGuard: guard_,
                                 configStore: cfgStore, agentBridge: SpyAgentBridge(), blocker: blocker), url, cfg)
     }

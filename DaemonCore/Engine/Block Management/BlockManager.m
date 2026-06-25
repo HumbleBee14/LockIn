@@ -131,7 +131,7 @@ BOOL appendMode = NO;
 		[hostBlockerSet writeNewFileContents];
 	}
 
-	[pf startBlock];
+	_pfDidEnable = ([pf startBlock] == 0);
 
 	[SCHelperToolUtilities clearOSDNSCache];
 }

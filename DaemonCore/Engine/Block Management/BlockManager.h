@@ -48,6 +48,7 @@
 - (void)finishAppending;
 - (void)prepareToAddBlock;
 - (void)finalizeBlock;
+@property (readonly) BOOL pfDidEnable;
 - (void)addBlockEntryFromString:(NSString*)entry;
 - (void)addBlockEntry:(SCBlockEntry*)entry;
 - (void)addBlockEntriesFromStrings:(NSArray<NSString*>*)blockList;

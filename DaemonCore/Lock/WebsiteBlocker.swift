@@ -1,16 +1,11 @@
 import Foundation
 
 final class WebsiteBlocker {
-    // verification reads the real system state in production; tests inject a stub so they don't need root
-    private let verify: (_ entries: [String], _ allowlist: Bool) -> Bool
+    // forces apply() to report success in tests, which can't write /etc/hosts or enable pf
+    private let forceVerified: Bool
 
-    init(verify: @escaping (_ entries: [String], _ allowlist: Bool) -> Bool = WebsiteBlocker.defaultVerify) {
-        self.verify = verify
-    }
-
-    // blocklist must land in /etc/hosts; allowlist is pf-only so confirm pf instead
-    static func defaultVerify(entries: [String], allowlist: Bool) -> Bool {
-        allowlist ? PacketFilter.blockFoundInPF() : hostsBlockApplied(entries: entries)
+    init(forceVerified: Bool = false) {
+        self.forceVerified = forceVerified
     }
 
     static func expand(_ domain: String) -> [String] {
@@ -47,8 +42,9 @@ final class WebsiteBlocker {
         manager?.prepareToAddBlock()
         manager?.addBlockEntries(from: entries)
         manager?.finalizeBlock()
-        // invariant: report success only if the block actually took effect (hosts for block, pf for allow)
-        return verify(entries, allowlist)
+        if forceVerified { return true }
+        // invariant: blocklist must land in /etc/hosts; allowlist holds only if pfctl -E actually enabled pf
+        return allowlist ? (manager?.pfDidEnable ?? false) : Self.hostsBlockApplied(entries: entries)
     }
 
     static func hostsBlockApplied(entries: [String]) -> Bool {
@@ -78,8 +74,9 @@ final class WebsiteBlocker {
         manager?.enterAppendMode()
         manager?.addBlockEntries(from: entries)
         manager?.finishAppending()
+        if forceVerified { return true }
         // invariant: confirm the new entries actually landed in /etc/hosts before reporting success
-        return verify(entries, false)
+        return Self.hostsBlockApplied(entries: entries)
     }
 
     func clear() {
