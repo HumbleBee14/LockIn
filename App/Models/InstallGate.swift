@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 final class InstallGate: ObservableObject {
     @Published var showingInstall = false
+    @Published var resolving = false
     let installer = InstallerService()
     private let client = DaemonClient()
 
@@ -40,16 +41,31 @@ final class InstallGate: ObservableObject {
         }
     }
 
-    // runs the pending action once the required daemon is live; called by Continue and the poll
     func resolveIfReady() {
-        guard installer.isReady() else { return }
+        guard !resolving else { return }
+        resolving = true
+        installer.lastError = nil
         Task {
-            guard await pingWithRetry(), let action = pendingAction else { return }
-            pendingAction = nil
-            installer.lastError = nil
+            defer { resolving = false }
+            guard installer.isReady() else {
+                installer.lastError = "Website blocking isn’t approved yet. Tap Approve above, then allow it in System Settings."
+                return
+            }
+            guard await pingWithRetry() else {
+                installer.lastError = "Approved, but the blocker isn’t responding yet. Wait a moment and tap Continue again."
+                return
+            }
             showingInstall = false
-            await action()
+            if let action = pendingAction {
+                pendingAction = nil
+                await action()
+            }
         }
+    }
+
+    func forceReinstall() {
+        installer.unregisterAll()
+        showingInstall = true
     }
 
     func cancel() {

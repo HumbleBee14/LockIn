@@ -48,9 +48,9 @@ struct InstallSheet: View {
                     .multilineTextAlignment(.center).frame(maxWidth: 380)
             }
 
-            Button("Continue") { gate.resolveIfReady() }
+            Button(gate.resolving ? "Checking…" : "Continue") { gate.resolveIfReady() }
                 .buttonStyle(.borderedProminent).tint(Theme.ember)
-                .disabled(!daemonReady)
+                .disabled(gate.resolving)
 
             Button("Cancel") { gate.cancel() }
                 .buttonStyle(.borderless)

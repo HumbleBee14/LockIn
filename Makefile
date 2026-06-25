@@ -63,6 +63,19 @@ release: gen
 	xcrun stapler staple "LockIn.dmg"
 	@echo "Built and notarized LockIn.dmg"
 
+# Developer-ID-signed build installed to /Applications for LOCAL daemon/enforcement testing.
+# No notarization (that's only for distributing to other Macs). Gatekeeper may warn once on first open.
+.PHONY: local
+local: gen
+	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration Release \
+		-derivedDataPath $(DERIVED) build \
+		CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Developer ID Application" \
+		DEVELOPMENT_TEAM=$(TEAM_ID) OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime"
+	pkill -x LockIn 2>/dev/null || true
+	rm -rf /Applications/LockIn.app
+	cp -R "$(RELEASE_APP)" /Applications/LockIn.app
+	@echo "Installed Developer-ID build to /Applications/LockIn.app — open it to test the real daemon"
+
 .PHONY: clean
 clean:
 	rm -rf $(DERIVED)

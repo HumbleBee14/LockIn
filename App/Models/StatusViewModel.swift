@@ -4,14 +4,17 @@ import Foundation
 final class StatusViewModel: ObservableObject {
     @Published var status: DaemonStatus?
     @Published var reachable = true
+    @Published var everConnected = false
     private let client: DaemonClient
 
     init(client: DaemonClient) { self.client = client }
 
     var isActive: Bool { status?.active ?? false }
 
-    // unknown daemon state must not present as "safe to tear down"
-    var stateIsKnown: Bool { reachable }
+    // only treat "unreachable" as a hold-the-UI signal AFTER we've actually connected once.
+    // a cold start that never reached the daemon must fall through to the normal install/Approve flow,
+    // never trap the user on a Reconnecting screen.
+    var lostConnection: Bool { everConnected && !reachable }
 
     var canAddDomains: Bool { isActive && !(status?.isAllowlist ?? false) }
 
@@ -37,7 +40,7 @@ final class StatusViewModel: ObservableObject {
 
     func refresh() async {
         switch await client.statusResult() {
-        case .answered(let s): status = s; reachable = true
+        case .answered(let s): status = s; reachable = true; everConnected = true
         case .unreachable: reachable = false
         }
     }
