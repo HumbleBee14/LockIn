@@ -32,6 +32,8 @@ struct SettingsView: View {
                     settingRow("Expand www variants",
                                "Also block the www. version of each site. Off keeps lists smaller so larger blocklists stay responsive.",
                                binding(\.expandSubdomains))
+                    Divider()
+                    notificationRow
                 }
                 .card()
                 .frame(maxWidth: 520)
@@ -41,6 +43,24 @@ struct SettingsView: View {
                 Spacer()
             }
             .padding(Theme.Spacing.l)
+        }
+    }
+
+    private var notificationRow: some View {
+        HStack(alignment: .center, spacing: Theme.Spacing.m) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Notifications").font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.mist)
+                Text("Show a notification when a blocked app is quit. Enable LockIn in System Settings.")
+                    .font(.system(size: 11)).foregroundStyle(Theme.mistDim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: Theme.Spacing.m)
+            Button("Open") {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+            .buttonStyle(.bordered).tint(Theme.ember)
         }
     }
 

@@ -122,7 +122,7 @@ final class SingleLockModelTests: XCTestCase {
     }
 
     func testQuickLockFailsAndRollsBackWhenHostsNotWritten() throws {
-        let set = BlockSet(id: "b", name: "Block", domains: ["youtube.com"], appBundleIds: [], mode: .blocklist)
+        let set = BlockSet(id: "b", name: "Block", domains: ["lockin-test-unverifiable.invalid"], appBundleIds: [], mode: .blocklist)
         let (c, url, cfg) = try controller(ScheduleConfig(rules: [], blockSets: [set]), "noverify", verifyHosts: false)
         XCTAssertFalse(c.startQuickLock(blockSetIds: ["b"], durationSeconds: 60),
             "a lock whose hosts write can't be verified must fail")

@@ -111,13 +111,16 @@ targets:
   LockInNotifier:
     type: application
     platform: macOS
-    sources: [Notifier]
+    sources:
+      - Notifier
+      - path: App/Assets.xcassets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.humblebee.lockin.notifier
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_LSUIElement: YES
         INFOPLIST_KEY_CFBundleDisplayName: LockIn
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
   DaemonTests:
     type: bundle.unit-test
     platform: macOS
