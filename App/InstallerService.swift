@@ -92,8 +92,8 @@ final class InstallerService: ObservableObject {
 
     private func humanError(_ error: Error) -> String {
         let ns = error as NSError
-        if ns.code == 1 {
-            return "This build isn't code-signed, so macOS won't install the background blocker. Build a signed copy to enable it."
+        if ns.domain == "SMAppServiceErrorDomain" && ns.code == 1 {
+            return "macOS blocked registration. A previous install may be stuck — reset background items in System Settings → Login Items and try again."
         }
         return ns.localizedDescription
     }
