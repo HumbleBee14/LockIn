@@ -11,8 +11,9 @@ final class AgentBridgePushTests: XCTestCase {
         try cfgStore.save(ScheduleConfig(rules: [], blockSets: [set], settings: settings))
         let guard_ = ClockGuard(wall: FakeWallClock(Date()), monotonic: FakeMonotonicClock(0),
                                 boot: FakeBootSession("B"), trusted: FakeTrustedTimeSource(nil))
+        let blocker = WebsiteBlocker(verify: { _, _ in true })
         return BlockController(store: LockStateStore(path: url), clockGuard: guard_,
-                               configStore: cfgStore, agentBridge: bridge)
+                               configStore: cfgStore, agentBridge: bridge, blocker: blocker)
     }
 
     func testStartBlockPushesActiveSnapshot() throws {

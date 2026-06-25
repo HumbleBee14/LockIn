@@ -10,6 +10,7 @@ struct SettingsView: View {
     @State private var uninstalling = false
     @State private var showUninstallConfirm = false
     @State private var uninstallResult: String?
+    @State private var uninstallDone = false
     private let installer = InstallerService()
 
     var body: some View {
@@ -36,10 +37,20 @@ struct SettingsView: View {
                 .frame(maxWidth: 520)
 
                 recoveryCard
+                developerFooter
                 Spacer()
             }
             .padding(Theme.Spacing.l)
         }
+    }
+
+    private var developerFooter: some View {
+        Link(destination: URL(string: "https://github.com/HumbleBee14/LockIn")!) {
+            Label("GitHub (Open Source)", systemImage: "chevron.left.forwardslash.chevron.right")
+                .font(.system(size: 11))
+        }
+        .tint(Theme.mistDim)
+        .frame(maxWidth: 520, alignment: .leading)
     }
 
     private var recoveryCard: some View {
@@ -61,12 +72,27 @@ struct SettingsView: View {
             Text("Uninstall removes the background helpers, resets your hosts file, and clears all LockIn data. Then drag LockIn to the Trash. Only available when no lock is active.")
                 .font(.system(size: 11)).foregroundStyle(Theme.mistDim)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Button(uninstalling ? "Uninstalling…" : "Uninstall LockIn") { showUninstallConfirm = true }
-                    .disabled(uninstalling)
-                    .tint(Theme.ember)
-                if let uninstallResult {
-                    Text(uninstallResult).font(.system(size: 11)).foregroundStyle(Theme.mistDim)
+            if uninstallDone {
+                let canSelfDelete = SelfUninstaller.canSelfDelete()
+                HStack(spacing: Theme.Spacing.s) {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    Text(canSelfDelete
+                         ? "Cleanup complete. Remove the app to finish."
+                         : "Uninstalled. Quit LockIn and drag it to the Trash.")
+                        .font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.mist)
+                }
+                Button(canSelfDelete ? "Remove & Quit" : "Quit LockIn") {
+                    if canSelfDelete { SelfUninstaller.selfDeleteAndQuit() } else { NSApp.terminate(nil) }
+                }
+                .tint(Theme.ember)
+            } else {
+                HStack {
+                    Button(uninstalling ? "Uninstalling…" : "Uninstall LockIn") { showUninstallConfirm = true }
+                        .disabled(uninstalling)
+                        .tint(Theme.ember)
+                    if let uninstallResult {
+                        Text(uninstallResult).font(.system(size: 11)).foregroundStyle(Theme.mistDim)
+                    }
                 }
             }
         }
@@ -102,16 +128,26 @@ struct SettingsView: View {
         Task {
             // daemon first: resets hosts + clears root data, refuses if a lock is active
             let ok = await client.prepareUninstall()
-            guard ok else {
-                uninstalling = false
-                uninstallResult = "Couldn't uninstall (a lock may be active)."
-                return
+            if !ok {
+                let status = await client.status()
+                // a reachable daemon refused => a lock is holding, or its own cleanup failed: block uninstall
+                if status?.active == true {
+                    uninstalling = false
+                    uninstallResult = "A lock is active — uninstall is blocked until it ends."
+                    return
+                }
+                if status != nil {
+                    uninstalling = false
+                    uninstallResult = "Cleanup failed. Try “Reset hosts to macOS default” first."
+                    return
+                }
+                // no daemon to reach (never installed / already gone): still clear app-side data and finish
             }
             installer.unregisterAll()
             ConfigPersistence.remove()
             store.config = ScheduleConfig(rules: [])
             uninstalling = false
-            uninstallResult = "Done. Now drag LockIn to the Trash."
+            uninstallDone = true
         }
     }
 

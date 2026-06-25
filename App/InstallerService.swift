@@ -44,14 +44,30 @@ final class InstallerService: ObservableObject {
     }
 
     func registerAll() {
+        refreshStatus()
+        // stale "enabled" job won't re-register; tear down first so launchd reloads
+        if daemonStatus == .enabled || agentStatus == .enabled {
+            try? daemon.unregister()
+            try? agent.unregister()
+        }
         do {
             try daemon.register()
             try agent.register()
-            lastError = nil
         } catch {
             lastError = humanError(error)
+            refreshStatus()
+            return
         }
         refreshStatus()
+        if needsApproval {
+            lastError = "Approve LockIn in System Settings to finish installing."
+        } else if daemonStatus == .notFound || agentStatus == .notFound {
+            lastError = "macOS couldn't find the background helper. This build may not be signed."
+        } else if daemonStatus != .enabled || agentStatus != .enabled {
+            lastError = "Install didn't complete (blocker: \(Self.describe(daemonStatus)), helper: \(Self.describe(agentStatus)))."
+        } else {
+            lastError = nil
+        }
     }
 
     func refreshStatus() {

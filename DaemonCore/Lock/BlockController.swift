@@ -5,14 +5,15 @@ public final class BlockController {
     private let clockGuard: ClockGuard
     private let configStore: ConfigStore
     private let agentBridge: AgentBridging
-    private let blocker = WebsiteBlocker()
+    private let blocker: WebsiteBlocker
 
     init(store: LockStateStore, clockGuard: ClockGuard, configStore: ConfigStore = .shared,
-         agentBridge: AgentBridging = AgentBridge()) {
+         agentBridge: AgentBridging = AgentBridge(), blocker: WebsiteBlocker = WebsiteBlocker()) {
         self.store = store
         self.clockGuard = clockGuard
         self.configStore = configStore
         self.agentBridge = agentBridge
+        self.blocker = blocker
     }
 
     public static func makeSystemController() -> BlockController {
@@ -29,14 +30,20 @@ public final class BlockController {
         return true
     }
 
-    func startQuickLock(blockSetIds: [String], durationSeconds: Double) -> Bool {
-        // a quick lock may start ONLY when nothing is active (the UI enforces this too)
-        if let s = store.load(), s.active { return false }
-        let config = persistedConfig()
+    // shared merge/dedup/cap used by both quick lock and scheduled lock so their logic can't diverge
+    struct ResolvedBlock {
+        let domains: [String]
+        let apps: [String]
+        let isAllowlist: Bool
+        let primaryId: String
+        let title: String
+    }
+
+    func resolveSets(_ blockSetIds: [String], in config: ScheduleConfig) -> ResolvedBlock? {
         let sets = blockSetIds.compactMap { id in config.blockSets.first { $0.id == id } }
-        guard let first = sets.first else { return false }
+        guard let first = sets.first else { return nil }
         // all selected sets must share one mode; mixing allow/block is rejected
-        guard sets.allSatisfy({ $0.mode == first.mode }) else { return false }
+        guard sets.allSatisfy({ $0.mode == first.mode }) else { return nil }
 
         var domains: [String] = []
         var apps: [String] = []
@@ -45,21 +52,34 @@ public final class BlockController {
             for d in set.domains where seenD.insert(d).inserted { domains.append(d) }
             for a in set.appBundleIds where seenA.insert(a).inserted { apps.append(a) }
         }
-        guard !domains.isEmpty else { return false }
+        guard !domains.isEmpty else { return nil }
         if domains.count > BlockLimits.maxActiveDomains {
             domains = Array(domains.prefix(BlockLimits.maxActiveDomains))
         }
-
         let title = sets.count == 1 ? first.name : "\(first.name) +\(sets.count - 1)"
+        return ResolvedBlock(domains: domains, apps: apps,
+                             isAllowlist: first.mode == .allowlist, primaryId: first.id, title: title)
+    }
+
+    func startQuickLock(blockSetIds: [String], durationSeconds: Double) -> Bool {
+        startQuickLockReason(blockSetIds: blockSetIds, durationSeconds: durationSeconds) == nil
+    }
+
+    // nil on success; otherwise a short reason for the failure so the app can show it
+    func startQuickLockReason(blockSetIds: [String], durationSeconds: Double) -> String? {
+        if let s = store.load(), s.active { return "A lock is already active." }
+        let config = persistedConfig()
+        guard let r = resolveSets(blockSetIds, in: config) else {
+            return "No valid sites to block (the selected sets are empty or mix allow/block modes)."
+        }
         let now = Date()
         let state = LockState(active: true, mode: .adHoc, windowEnd: nil, duration: durationSeconds,
             anchorWallTime: now, trustedNowAtLastHeartbeat: now, servedElapsedAtLastHeartbeat: 0,
             clockSuspicious: false, bootSessionUUID: SystemBootSession().uuid,
-            appliedDomains: domains, appliedAppBundleIds: apps,
+            appliedDomains: r.domains, appliedAppBundleIds: r.apps,
             appliedSettings: config.settings,
-            isAllowlist: first.mode == .allowlist, blockSetId: first.id, blockSetTitle: title, scheduleRuleId: nil)
-        activate(state)
-        return true
+            isAllowlist: r.isAllowlist, blockSetId: r.primaryId, blockSetTitle: r.title, scheduleRuleId: nil)
+        return activate(state) ? nil : "The block couldn’t be written to the system hosts file."
     }
 
     // append-only, blocklist-only edit to the active block (the one change allowed mid-lock)
@@ -69,10 +89,11 @@ public final class BlockController {
         let fresh = domains.filter { !existing.contains($0) }
         guard !fresh.isEmpty else { return true }
         guard s.appliedDomains.count + fresh.count <= BlockLimits.maxActiveDomains else { return false }
+        // invariant: only record the domains in the snapshot once hosts actually carries them
+        guard blocker.appendToActiveBlock(newDomains: fresh,
+                                          expandSubdomains: s.appliedSettings.expandSubdomains) else { return false }
         s.appliedDomains.append(contentsOf: fresh)
         try? store.save(s)
-        // incremental append: only the new domains touch hosts/pf, not a full rebuild
-        blocker.appendToActiveBlock(newDomains: fresh, expandSubdomains: s.appliedSettings.expandSubdomains)
         return true
     }
 
@@ -95,12 +116,18 @@ public final class BlockController {
         return ok
     }
 
-    // single-lock activation: write state, apply the block, push the app snapshot
-    private func activate(_ state: LockState) {
+    // invariant: roll back fully if the block didn't apply, so no active state is left on failure
+    private func activate(_ state: LockState) -> Bool {
         try? store.save(state)
-        blocker.apply(domains: state.appliedDomains, allowlist: state.isAllowlist,
-                      expandSubdomains: state.appliedSettings.expandSubdomains)
+        let applied = blocker.apply(domains: state.appliedDomains, allowlist: state.isAllowlist,
+                                    expandSubdomains: state.appliedSettings.expandSubdomains)
+        guard applied else {
+            blocker.clear()
+            try? store.clear()
+            return false
+        }
         pushAppSnapshot(for: state)
+        return true
     }
 
     func currentStatus() -> LockState? {
@@ -120,7 +147,8 @@ public final class BlockController {
             isAllowlist: s.isAllowlist,
             endsAt: endsAt(for: s),
             appliedDomains: s.appliedDomains,
-            nextTriggerDescription: nil)
+            nextTriggerDescription: nil,
+            pfApplied: blocker.isApplied())
     }
 
     private func endsAt(for s: LockState) -> Date? {
@@ -170,18 +198,18 @@ public final class BlockController {
     func startScheduled(rule: Rule, windowEnd: Date?) {
         // already enforcing THIS rule: nothing to do (don't reset its timer each tick)
         if let s = store.load(), s.active, s.scheduleRuleId == rule.id { return }
-        // don't fire if the set was deleted or is empty — nothing to enforce
-        guard let set = loadConfig().blockSets.first(where: { $0.id == rule.blockSetId }),
-              !set.domains.isEmpty else { return }
+        let config = loadConfig()
+        // don't fire if every set is deleted/empty or modes conflict — nothing valid to enforce
+        guard let r = resolveSets(rule.blockSetIds, in: config) else { return }
         let now = Date()
         // a schedule trigger preempts a quick lock or a different active schedule (latest-active-wins)
         let state = LockState(active: true, mode: .scheduled, windowEnd: windowEnd, duration: nil,
             anchorWallTime: now, trustedNowAtLastHeartbeat: now, servedElapsedAtLastHeartbeat: 0,
             clockSuspicious: false, bootSessionUUID: SystemBootSession().uuid,
-            appliedDomains: set.domains, appliedAppBundleIds: rule.appBundleIds,
-            appliedSettings: loadConfig().settings,
-            isAllowlist: set.mode == .allowlist, blockSetId: set.id, blockSetTitle: set.name, scheduleRuleId: rule.id)
-        activate(state)
+            appliedDomains: r.domains, appliedAppBundleIds: r.apps,
+            appliedSettings: config.settings,
+            isAllowlist: r.isAllowlist, blockSetId: r.primaryId, blockSetTitle: r.title, scheduleRuleId: rule.id)
+        _ = activate(state)
     }
 
     // app-blocking off => push an empty list so the agent kills nothing

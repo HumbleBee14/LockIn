@@ -1,6 +1,18 @@
 import Foundation
 
 final class WebsiteBlocker {
+    // verification reads the real system state in production; tests inject a stub so they don't need root
+    private let verify: (_ entries: [String], _ allowlist: Bool) -> Bool
+
+    init(verify: @escaping (_ entries: [String], _ allowlist: Bool) -> Bool = WebsiteBlocker.defaultVerify) {
+        self.verify = verify
+    }
+
+    // blocklist must land in /etc/hosts; allowlist is pf-only so confirm pf instead
+    static func defaultVerify(entries: [String], allowlist: Bool) -> Bool {
+        allowlist ? PacketFilter.blockFoundInPF() : hostsBlockApplied(entries: entries)
+    }
+
     static func expand(_ domain: String) -> [String] {
         let apex = domain.hasPrefix("www.") ? String(domain.dropFirst(4)) : domain
         if let numbered = enumerateNumberedPrefix(apex) { return numbered }
@@ -27,24 +39,47 @@ final class WebsiteBlocker {
             ? Array(raw.prefix(BlockLimits.maxHostsEntries)) : raw
     }
 
-    func apply(domains: [String], allowlist: Bool, expandSubdomains: Bool) {
+    @discardableResult
+    func apply(domains: [String], allowlist: Bool, expandSubdomains: Bool) -> Bool {
         let entries = Self.entries(for: domains, expand: expandSubdomains)
         let manager = BlockManager(asAllowlist: allowlist, allowLocal: true,
                                    includeCommonSubdomains: true, includeLinkedDomains: false)
         manager?.prepareToAddBlock()
         manager?.addBlockEntries(from: entries)
         manager?.finalizeBlock()
+        // invariant: report success only if the block actually took effect (hosts for block, pf for allow)
+        return verify(entries, allowlist)
+    }
+
+    static func hostsBlockApplied(entries: [String]) -> Bool {
+        guard let contents = try? String(contentsOfFile: "/etc/hosts", encoding: .utf8) else { return false }
+        return blockPresent(in: contents, entries: entries)
+    }
+
+    // invariant: markers alone don't count; a real entry must sit inside the block section
+    static func blockPresent(in contents: String, entries: [String]) -> Bool {
+        let header = "# BEGIN SELFCONTROL BLOCK"
+        let footer = "# END SELFCONTROL BLOCK"
+        guard !entries.isEmpty,
+              let headerRange = contents.range(of: header),
+              let footerRange = contents.range(of: footer, range: headerRange.upperBound..<contents.endIndex)
+        else { return false }
+        let section = contents[headerRange.upperBound..<footerRange.lowerBound]
+        return entries.contains { section.contains($0) }
     }
 
     // incremental: append only the new domains to a running block (no teardown, resolve only these)
-    func appendToActiveBlock(newDomains: [String], expandSubdomains: Bool) {
+    @discardableResult
+    func appendToActiveBlock(newDomains: [String], expandSubdomains: Bool) -> Bool {
         let entries = Self.entries(for: newDomains, expand: expandSubdomains)
-        guard !entries.isEmpty else { return }
+        guard !entries.isEmpty else { return false }
         let manager = BlockManager(asAllowlist: false, allowLocal: true,
                                    includeCommonSubdomains: true, includeLinkedDomains: false)
         manager?.enterAppendMode()
         manager?.addBlockEntries(from: entries)
         manager?.finishAppending()
+        // invariant: confirm the new entries actually landed in /etc/hosts before reporting success
+        return verify(entries, false)
     }
 
     func clear() {
@@ -64,7 +99,11 @@ final class WebsiteBlocker {
     }
 
     func reassertIfTampered(domains: [String], allowlist: Bool, expandSubdomains: Bool) {
-        // re-apply if a tamper removed the block mid-window
-        if !isApplied() { apply(domains: domains, allowlist: allowlist, expandSubdomains: expandSubdomains) }
+        // re-apply if a tamper removed the block from EITHER pf or the hosts file mid-window
+        let entries = Self.entries(for: domains, expand: expandSubdomains)
+        let hostsIntact = allowlist || Self.hostsBlockApplied(entries: entries)
+        if !isApplied() || !hostsIntact {
+            apply(domains: domains, allowlist: allowlist, expandSubdomains: expandSubdomains)
+        }
     }
 }

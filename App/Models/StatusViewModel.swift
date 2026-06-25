@@ -35,7 +35,8 @@ final class StatusViewModel: ObservableObject {
         status = await client.status()
     }
 
-    func startQuickLock(blockSetIds: [String], minutes: Int) async -> Bool {
+    // nil on success; otherwise the failure reason to surface
+    func startQuickLock(blockSetIds: [String], minutes: Int) async -> String? {
         await client.startQuickLock(blockSetIds: blockSetIds, duration: Double(minutes * 60))
     }
 

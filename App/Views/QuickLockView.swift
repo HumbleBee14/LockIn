@@ -7,6 +7,8 @@ struct QuickLockView: View {
     @ObservedObject var draft: QuickLockDraft
 
     @State private var starting = false
+    @State private var showFailed = false
+    @State private var failReason = ""
 
     private let presets: [(String, Int)] = [
         ("30 min", 30), ("1 hour", 60), ("2 hours", 120),
@@ -37,13 +39,16 @@ struct QuickLockView: View {
             .padding(Theme.Spacing.l)
         }
         .scrollIndicators(.hidden)
+        .alert("Failed to apply the lock", isPresented: $showFailed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(failReason)
+        }
     }
 
     private var selectedSets: [BlockSet] {
         store.config.blockSets.filter { draft.selectedBlockSetIds.contains($0.id) }
     }
-
-    private var lockedMode: BlockSetMode? { selectedSets.first?.mode }
 
     private var combinedDomainCount: Int {
         var seen = Set<String>()
@@ -51,55 +56,12 @@ struct QuickLockView: View {
         return seen.count
     }
 
-    private func isDisabled(_ set: BlockSet) -> Bool {
-        guard let mode = lockedMode else { return false }
-        return set.mode != mode && !draft.selectedBlockSetIds.contains(set.id)
-    }
-
     private var blockSetPicker: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.s) {
             Text("What to block").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.mistDim)
-            if store.config.blockSets.isEmpty {
-                Text("Create a block set in the Block Sets tab to get started.")
-                    .font(.system(size: 12)).foregroundStyle(Theme.mistDim).card()
-            } else {
-                ForEach(store.config.blockSets, id: \.id) { set in
-                    blockSetRow(set)
-                }
-                if selectedSets.count > 1 {
-                    Text("\(selectedSets.count) sets · \(combinedDomainCount) unique site\(combinedDomainCount == 1 ? "" : "s")")
-                        .font(.system(size: 11)).foregroundStyle(Theme.mistDim)
-                }
-            }
+            BlockSetPicker(blockSets: store.config.blockSets, selectedIds: $draft.selectedBlockSetIds)
         }
         .frame(maxWidth: .infinity)
-    }
-
-    private func blockSetRow(_ set: BlockSet) -> some View {
-        let on = draft.selectedBlockSetIds.contains(set.id)
-        let disabled = isDisabled(set)
-        return Button {
-            if on { draft.selectedBlockSetIds.remove(set.id) }
-            else { draft.selectedBlockSetIds.insert(set.id) }
-        } label: {
-            HStack(spacing: Theme.Spacing.s) {
-                Image(systemName: on ? "checkmark.square.fill" : "square")
-                    .foregroundStyle(on ? Theme.ember : Theme.mistDim)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(set.name).foregroundStyle(disabled ? Theme.mistDim : Theme.mist)
-                    Text(BlockSetPicker.subtitle(set)).font(.system(size: 11)).foregroundStyle(Theme.mistDim)
-                }
-                Spacer()
-            }
-            .padding(Theme.Spacing.m)
-            .background(Theme.inkSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .opacity(disabled ? 0.45 : 1)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(disabled)
-        .help(disabled ? "Can't mix allowlist and blocklist in one lock" : "")
     }
 
     private var durationPicker: some View {
@@ -180,9 +142,10 @@ struct QuickLockView: View {
         gate.require {
             starting = true
             _ = await store.commit()
-            _ = await statusModel.startQuickLock(blockSetIds: ids, minutes: effectiveMinutes)
+            let reason = await statusModel.startQuickLock(blockSetIds: ids, minutes: effectiveMinutes)
             await statusModel.refresh()
             starting = false
+            if let reason { failReason = reason; showFailed = true }
         }
     }
 }

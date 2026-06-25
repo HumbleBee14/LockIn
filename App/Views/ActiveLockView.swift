@@ -16,8 +16,11 @@ struct ActiveLockView: View {
                 .frame(width: 240, height: 240)
 
             VStack(spacing: Theme.Spacing.xs) {
-                Text(model.status?.blockSetTitle ?? "Locked")
-                    .font(Theme.displayFont(18, .semibold)).foregroundStyle(Theme.mist)
+                HStack(spacing: Theme.Spacing.s) {
+                    Text(model.status?.blockSetTitle ?? "Locked")
+                        .font(Theme.displayFont(18, .semibold)).foregroundStyle(Theme.mist)
+                    enforcementDot
+                }
                 Text(identity)
                     .font(.system(size: 12)).foregroundStyle(Theme.mistDim)
             }
@@ -38,6 +41,15 @@ struct ActiveLockView: View {
         } message: {
             Text("This block already holds the maximum of \(BlockLimits.maxActiveDomains) sites.")
         }
+    }
+
+    // both layers live = solid green; hosts-only (pf not confirmed) = amber. internal signal, no label.
+    private var enforcementDot: some View {
+        let full = model.status?.pfApplied ?? false
+        return Circle()
+            .fill(full ? Color.green : Color.orange)
+            .frame(width: 8, height: 8)
+            .help(full ? "Both blocking layers are active" : "Hosts blocking active; firewall layer not confirmed")
     }
 
     private var countdown: String {

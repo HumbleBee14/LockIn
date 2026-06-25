@@ -1,5 +1,6 @@
 import Foundation
 
 enum LockInVersion {
-    static let current = "0.0.1"
+    // invariant: bump on any XPC protocol change so ping() rejects a stale daemon
+    static let current = "0.0.2"
 }

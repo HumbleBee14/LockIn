@@ -33,4 +33,29 @@ final class WebsiteBlockerTests: XCTestCase {
         let entries = WebsiteBlocker.entries(for: domains, expand: false)
         XCTAssertEqual(entries.count, BlockLimits.maxHostsEntries)
     }
+
+    private func hosts(_ block: String) -> String {
+        "127.0.0.1\tlocalhost\n# BEGIN SELFCONTROL BLOCK\n\(block)\n# END SELFCONTROL BLOCK\n"
+    }
+
+    func testBlockPresentWhenEntryInSection() {
+        let contents = hosts("0.0.0.0\tyoutube.com")
+        XCTAssertTrue(WebsiteBlocker.blockPresent(in: contents, entries: ["youtube.com"]))
+    }
+    func testBlockAbsentWhenNoMarkers() {
+        let contents = "127.0.0.1\tlocalhost\n"
+        XCTAssertFalse(WebsiteBlocker.blockPresent(in: contents, entries: ["youtube.com"]))
+    }
+    func testBlockAbsentWhenSectionEmpty() {
+        // stale/empty marker block must NOT pass — markers alone aren't proof
+        let contents = hosts("")
+        XCTAssertFalse(WebsiteBlocker.blockPresent(in: contents, entries: ["youtube.com"]))
+    }
+    func testBlockAbsentWhenDomainOutsideSection() {
+        let contents = "0.0.0.0\tyoutube.com\n# BEGIN SELFCONTROL BLOCK\n0.0.0.0\tother.com\n# END SELFCONTROL BLOCK\n"
+        XCTAssertFalse(WebsiteBlocker.blockPresent(in: contents, entries: ["youtube.com"]))
+    }
+    func testBlockAbsentWhenNoEntriesRequested() {
+        XCTAssertFalse(WebsiteBlocker.blockPresent(in: hosts("0.0.0.0\tx.com"), entries: []))
+    }
 }
