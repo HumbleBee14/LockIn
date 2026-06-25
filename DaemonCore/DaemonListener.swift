@@ -75,4 +75,14 @@ final class DaemonXPC: NSObject, LockInDaemonProtocol {
         guard let controller else { reply(false); return }
         reply(controller.appendDomainsToActiveBlock(domains))
     }
+
+    func resetHostsToDefault(reply: @escaping (Bool) -> Void) {
+        guard let controller else { reply(false); return }
+        reply(controller.resetHostsToDefault())
+    }
+
+    func prepareUninstall(reply: @escaping (Bool) -> Void) {
+        guard let controller else { reply(false); return }
+        reply(controller.prepareUninstall())
+    }
 }

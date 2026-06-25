@@ -48,4 +48,22 @@ final class DaemonClient: Sendable {
             proxy?.appendDomainsToActiveBlock(domains) { ok in cont.resume(returning: ok) }
         }
     }
+
+    func resetHostsToDefault() async -> Bool {
+        await withCheckedContinuation { cont in
+            let c = connection()
+            let proxy = c.remoteObjectProxyWithErrorHandler { _ in cont.resume(returning: false) }
+                as? LockInDaemonProtocol
+            proxy?.resetHostsToDefault { ok in cont.resume(returning: ok) }
+        }
+    }
+
+    func prepareUninstall() async -> Bool {
+        await withCheckedContinuation { cont in
+            let c = connection()
+            let proxy = c.remoteObjectProxyWithErrorHandler { _ in cont.resume(returning: false) }
+                as? LockInDaemonProtocol
+            proxy?.prepareUninstall { ok in cont.resume(returning: ok) }
+        }
+    }
 }

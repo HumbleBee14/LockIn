@@ -93,6 +93,14 @@
     return ret;
 }
 
+- (BOOL)writeDefaultHostsFile {
+    BOOL ret = YES;
+    for (HostFileBlocker* blocker in self.blockers) {
+        ret = ret && [blocker writeDefaultHostsFile];
+    }
+    return ret;
+}
+
 - (void)addRuleBlockingDomain:(NSString*)domainName {
     for (HostFileBlocker* blocker in self.blockers) {
         [blocker addRuleBlockingDomain: domainName];

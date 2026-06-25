@@ -53,6 +53,12 @@ final class WebsiteBlocker {
         _ = manager?.clearBlock()
     }
 
+    func resetToSystemDefault() -> Bool {
+        let manager = BlockManager(asAllowlist: false, allowLocal: true,
+                                   includeCommonSubdomains: true, includeLinkedDomains: false)
+        return manager?.resetHostsToDefault() ?? false
+    }
+
     func isApplied() -> Bool {
         PacketFilter.blockFoundInPF()
     }

@@ -86,22 +86,35 @@ NSString* const kDefaultHostsFileContents = @"##\n"
 	return ret;
 }
 
+- (BOOL)writeDefaultHostsFile {
+	[strLock lock];
+	[self deleteBackupHostsFile];
+	newFileContents = [NSMutableString stringWithString: kDefaultHostsFileContents];
+	BOOL ret = [newFileContents writeToFile: hostFilePath atomically: YES encoding: NSUTF8StringEncoding error: NULL];
+	[strLock unlock];
+	return ret;
+}
+
 - (NSString*)backupHostFilePath {
     return [hostFilePath stringByAppendingPathExtension: @"bak"];
 }
 
 - (BOOL)createBackupHostsFile {
-	[self deleteBackupHostsFile];
+	// a stale backup from a dead session must not poison new blocks — force remove it
+	NSString* backupPath = [self backupHostFilePath];
+	if ([fileMan fileExistsAtPath: backupPath]) {
+		[fileMan removeItemAtPath: backupPath error: nil];
+	}
 
 	if (![fileMan fileExistsAtPath: hostFilePath]) {
 		[kDefaultHostsFileContents writeToFile: hostFilePath atomically:true encoding: NSUTF8StringEncoding error: NULL];
 	}
 
-	if(![fileMan isReadableFileAtPath: hostFilePath] || [fileMan fileExistsAtPath: [self backupHostFilePath]]) {
+	if(![fileMan isReadableFileAtPath: hostFilePath] || [fileMan fileExistsAtPath: backupPath]) {
 		return NO;
 	}
 
-	return [fileMan copyItemAtPath: hostFilePath toPath: [self backupHostFilePath] error: nil];
+	return [fileMan copyItemAtPath: hostFilePath toPath: backupPath error: nil];
 }
 
 - (BOOL)deleteBackupHostsFile {

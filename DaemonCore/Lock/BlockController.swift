@@ -80,6 +80,21 @@ public final class BlockController {
         configStore.load() ?? ScheduleConfig(rules: [])
     }
 
+    // recovery: rewrite /etc/hosts to the macOS default — refused while a lock is active (would be a bypass)
+    func resetHostsToDefault() -> Bool {
+        if let s = store.load(), s.active { return false }
+        return blocker.resetToSystemDefault()
+    }
+
+    // root-side cleanup for uninstall: reset hosts, clear snapshot + root config. Refused while locked.
+    func prepareUninstall() -> Bool {
+        if let s = store.load(), s.active { return false }
+        let ok = blocker.resetToSystemDefault()
+        try? store.clear()
+        try? configStore.save(ScheduleConfig(rules: []))
+        return ok
+    }
+
     // single-lock activation: write state, apply the block, push the app snapshot
     private func activate(_ state: LockState) {
         try? store.save(state)

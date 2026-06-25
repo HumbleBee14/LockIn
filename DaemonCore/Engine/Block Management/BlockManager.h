@@ -53,6 +53,7 @@
 - (void)addBlockEntriesFromStrings:(NSArray<NSString*>*)blockList;
 - (BOOL)clearBlock;
 - (BOOL)forceClearBlock;
+- (BOOL)resetHostsToDefault;
 - (BOOL)blockIsActive;
 
 - (NSArray*)commonSubdomainsForHostName:(NSString*)hostName;

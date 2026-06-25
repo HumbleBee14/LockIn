@@ -92,7 +92,7 @@ struct RootView: View {
         case .quickLock: QuickLockView(store: store, statusModel: statusModel, gate: gate, draft: quickLockDraft)
         case .schedule: ScheduleGridView(store: store, statusModel: statusModel, gate: gate)
         case .blockSets: BlockSetEditorView(store: store)
-        case .settings: SettingsView(store: store)
+        case .settings: SettingsView(store: store, client: DaemonClient())
         }
     }
 }

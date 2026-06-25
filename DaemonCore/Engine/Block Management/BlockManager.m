@@ -219,6 +219,13 @@ BOOL appendMode = NO;
 	}
 }
 
+- (BOOL)resetHostsToDefault {
+	[pf stopBlock: true];
+	BOOL hostSuccess = [hostBlockerSet writeDefaultHostsFile];
+	[SCHelperToolUtilities clearOSDNSCache];
+	return hostSuccess;
+}
+
 - (BOOL)clearBlock {
 	[pf stopBlock: false];
 	BOOL pfSuccess = ![pf containsSelfControlBlock];

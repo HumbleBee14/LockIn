@@ -45,6 +45,8 @@
 
 - (void)removeSelfControlBlock;
 
+- (BOOL)writeDefaultHostsFile;
+
 @end
 
 

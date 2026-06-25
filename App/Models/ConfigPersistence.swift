@@ -11,6 +11,10 @@ enum ConfigPersistence {
         return try? JSONDecoder().decode(ScheduleConfig.self, from: data)
     }
 
+    static func remove() {
+        try? FileManager.default.removeItem(at: fileURL)
+    }
+
     static func save(_ config: ScheduleConfig) {
         let url = fileURL
         try? FileManager.default.createDirectory(
