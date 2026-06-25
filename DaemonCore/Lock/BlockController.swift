@@ -228,7 +228,9 @@ public final class BlockController {
             pfApplied: blocker.isApplied())
     }
 
-    // the countdown shows when the user is FULLY free: the latest end across all active snapshots
+    // the countdown shows when the user is FULLY free: the latest end across all active snapshots.
+    // a quick lock's end is a STABLE absolute instant (anchor + duration) so the UI countdown can't
+    // jump — recomputing "now + remaining" each poll would re-anchor it on every refresh.
     private func latestEnd(_ snaps: [LockSnapshot]) -> Date? {
         var latest: Date?
         for s in snaps {
@@ -237,7 +239,7 @@ public final class BlockController {
             case .scheduled: end = s.windowEnd
             case .adHoc:
                 guard let d = s.duration else { end = nil; break }
-                end = Date().addingTimeInterval(max(0, d - s.servedElapsedAtLastHeartbeat))
+                end = s.anchorWallTime.addingTimeInterval(d)
             }
             if let end, latest == nil || end > latest! { latest = end }
         }
