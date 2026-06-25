@@ -16,13 +16,14 @@ final class InstallGate: ObservableObject {
 
     // invariant: every outcome sets a visible message — never fail silently
     func install() async {
-        installer.registerAll()
+        let alive = await client.ping()
+        installer.registerAll(daemonAlive: alive)
         if installer.lastError != nil { return }
         guard installer.isReady() else {
             installer.lastError = "Install didn't take — the blocker isn't registered. Try again."
             return
         }
-        guard await client.ping() else {
+        guard await pingWithRetry() else {
             installer.lastError = "Installed, but the blocker isn't responding yet. Wait a moment and try again."
             return
         }
@@ -31,6 +32,14 @@ final class InstallGate: ObservableObject {
         let action = pendingAction
         pendingAction = nil
         await action?()
+    }
+
+    private func pingWithRetry(attempts: Int = 5) async -> Bool {
+        for _ in 0..<attempts {
+            if await client.ping() { return true }
+            try? await Task.sleep(nanoseconds: 800_000_000)
+        }
+        return false
     }
 
     func require(_ action: @escaping () async -> Void) {
@@ -46,6 +55,8 @@ final class InstallGate: ObservableObject {
 
     // called by the install sheet whenever status changes; runs the pending action once ready
     func resolveIfReady() {
+        // once the daemon is approved, register the agent on this tick (can't be done in the same tick as the daemon)
+        installer.registerAgentIfDaemonReady()
         Task {
             guard await isReady(), let action = pendingAction else { return }
             pendingAction = nil

@@ -13,6 +13,24 @@ Set it up once: pick what to block and when. When the window starts, the distrac
 - Resists common workarounds like changing the system clock
 - Clean, native macOS interface
 
+## Install
+
+Install with [Homebrew](https://brew.sh):
+
+```sh
+brew tap humblebee14/lockin
+brew trust humblebee14/lockin
+brew install --cask lockin
+```
+
+To upgrade later:
+
+```sh
+brew upgrade --cask lockin
+```
+
+You can also download the latest signed `.dmg` directly from the [Releases page](https://github.com/HumbleBee14/LockIn/releases/latest).
+
 ## Requirements
 
 macOS 13 or later.

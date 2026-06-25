@@ -43,30 +43,31 @@ final class InstallerService: ObservableObject {
         refreshStatus()
     }
 
-    func registerAll() {
+    // register the daemon first; the agent is registered only once the daemon is enabled, because
+    // registering both in one tick collides with the daemon's approval prompt and leaves the agent .notFound.
+    // daemonAlive: a live ping result — an "enabled" job that doesn't answer is stale and gets re-registered.
+    func registerAll(daemonAlive: Bool = false) {
         refreshStatus()
-        // stale "enabled" job won't re-register; tear down first so launchd reloads
-        if daemonStatus == .enabled || agentStatus == .enabled {
+        if daemonStatus == .enabled && !daemonAlive {
             try? daemon.unregister()
             try? agent.unregister()
-        }
-        do {
-            try daemon.register()
-            try agent.register()
-        } catch {
-            lastError = humanError(error)
             refreshStatus()
-            return
         }
+        if daemonStatus != .enabled {
+            do { try daemon.register() } catch { lastError = humanError(error); refreshStatus(); return }
+        }
+        registerAgentIfDaemonReady()
         refreshStatus()
-        if needsApproval {
-            lastError = "Approve LockIn in System Settings to finish installing."
-        } else if daemonStatus == .notFound || agentStatus == .notFound {
-            lastError = "macOS couldn't find the background helper. This build may not be signed."
-        } else if daemonStatus != .enabled || agentStatus != .enabled {
-            lastError = "Install didn't complete (blocker: \(Self.describe(daemonStatus)), helper: \(Self.describe(agentStatus)))."
-        } else {
-            lastError = nil
+        lastError = needsApproval ? "Approve LockIn in System Settings to finish installing." : nil
+    }
+
+    // the agent registers cleanly only after the daemon is approved; called repeatedly by the poll
+    func registerAgentIfDaemonReady() {
+        refreshStatus()
+        guard daemonStatus == .enabled else { return }
+        if agentStatus == .notRegistered || agentStatus == .notFound {
+            try? agent.register()
+            refreshStatus()
         }
     }
 
@@ -84,7 +85,7 @@ final class InstallerService: ObservableObject {
         case .notRegistered: return "Not installed"
         case .enabled: return "Active"
         case .requiresApproval: return "Waiting for approval"
-        case .notFound: return "Not available (this build isn't signed)"
+        case .notFound: return "Registering…"
         @unknown default: return "Unknown"
         }
     }
