@@ -80,6 +80,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.humblebee.lockin.daemon
+        GENERATE_INFOPLIST_FILE: YES
+        CREATE_INFOPLIST_SECTION_IN_BINARY: YES
   LockInAgentCore:
     type: library.static
     platform: macOS
@@ -98,6 +100,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.humblebee.lockin.agent
+        GENERATE_INFOPLIST_FILE: YES
+        CREATE_INFOPLIST_SECTION_IN_BINARY: YES
   DaemonTests:
     type: bundle.unit-test
     platform: macOS
