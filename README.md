@@ -58,10 +58,6 @@ macOS 13 (Ventura) or later. Apple Silicon and Intel.
 
 LockIn keeps your data on your Mac and collects no analytics. See [PRIVACY.md](PRIVACY.md).
 
-## Building from source
-
-See [BUILD.md](BUILD.md) for build and development setup, and [RELEASE.md](RELEASE.md) for the release process.
-
 ## License
 
 [GPLv3](LICENSE). LockIn draws inspiration from [SelfControl](https://github.com/SelfControlApp/selfcontrol) and similar focus tools, and extends the idea with a recurring scheduler, clock-tamper resistance, app blocking, and a native macOS UI.
