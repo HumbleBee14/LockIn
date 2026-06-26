@@ -22,16 +22,8 @@ struct SettingsView: View {
                     .foregroundStyle(Theme.mist)
 
                 VStack(alignment: .leading, spacing: Theme.Spacing.m) {
-                    settingRow("Clock-tamper protection",
-                               "Holds blocks even if the system clock is moved forward. Recommended.",
-                               binding(\.clockTamperProtection))
-                    Divider()
-                    settingRow("App blocking",
-                               "Quit blocked apps when they launch during a window.",
-                               binding(\.appBlockingEnabled))
-                    Divider()
-                    settingRow("Expand www / IPv6 variants",
-                               "Also block the www. and IPv6 versions of each site. Off keeps lists smaller so larger blocklists stay responsive.",
+                    settingRow("Aggressive matching",
+                               "This also catches some additional hosts based on current domains.",
                                binding(\.expandSubdomains))
                     Divider()
                     notificationRow

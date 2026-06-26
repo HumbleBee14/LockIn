@@ -151,8 +151,7 @@ public final class BlockController {
         }
         pushAppUnion(snaps)
         // invariant: if the active block has apps but the killer stopped, re-arm it — bias toward staying blocked
-        let on = first.appliedSettings.appBlockingEnabled
-        if on && !e.apps.isEmpty && !appBlocker.isMonitoring() {
+        if !e.apps.isEmpty && !appBlocker.isMonitoring() {
             appBlocker.update(active: true, bundleIds: e.apps)
         }
     }
@@ -219,7 +218,6 @@ public final class BlockController {
         let e = EffectiveBlock.resolve(snaps)
         let anyScheduled = snaps.contains { $0.mode == .scheduled }
         let title = snaps.count == 1 ? snaps[0].blockSetTitle : "\(snaps[0].blockSetTitle) +\(snaps.count - 1)"
-        let appsOn = snaps.first?.appliedSettings.appBlockingEnabled ?? false
         return DaemonStatus(
             active: true,
             source: anyScheduled ? "scheduled" : "quick",
@@ -228,7 +226,7 @@ public final class BlockController {
             isAllowlist: e.isAllowlist,
             endsAt: latestEnd(snaps),
             appliedDomains: e.domains,
-            appliedAppBundleIds: appsOn ? e.apps : [],
+            appliedAppBundleIds: e.apps,
             nextTriggerDescription: nil,
             pfApplied: blocker.isApplied())
     }
@@ -258,8 +256,7 @@ public final class BlockController {
 
     private func pushAppUnion(_ snaps: [LockSnapshot]) {
         let e = EffectiveBlock.resolve(snaps)
-        let on = snaps.first?.appliedSettings.appBlockingEnabled ?? false
-        appBlocker.update(active: on, bundleIds: on ? e.apps : [])
+        appBlocker.update(active: !e.apps.isEmpty, bundleIds: e.apps)
     }
 
     func pushClearedSnapshot() {
