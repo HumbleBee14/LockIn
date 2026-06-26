@@ -54,12 +54,27 @@ class WebsiteBlocker {
         manager?.finalizeBlock()
         if forceVerified { return true }
         // invariant: blocklist must land in /etc/hosts; allowlist holds only if pfctl -E actually enabled pf
-        return allowlist ? (manager?.pfDidEnable ?? false) : Self.hostsBlockApplied(entries: entries)
+        if allowlist {
+            let ok = manager?.pfDidEnable ?? false
+            if !ok { LockInLog.error("apply: allowlist pf did not enable (\(entries.count) entries)") }
+            return ok
+        }
+        let ok = Self.hostsBlockApplied(entries: entries)
+        if !ok { LockInLog.error("apply: hosts verify failed for \(entries.count) entries — block not present in /etc/hosts") }
+        return ok
     }
 
     static func hostsBlockApplied(entries: [String]) -> Bool {
-        guard let contents = try? String(contentsOfFile: "/etc/hosts", encoding: .utf8) else { return false }
-        return blockPresent(in: contents, entries: entries)
+        guard let contents = try? String(contentsOfFile: "/etc/hosts", encoding: .utf8) else {
+            LockInLog.error("hosts verify: /etc/hosts unreadable")
+            return false
+        }
+        let present = blockPresent(in: contents, entries: entries)
+        if !present {
+            let hasMarkers = contents.contains("# BEGIN SELFCONTROL BLOCK")
+            LockInLog.error("hosts verify: block-not-present (markers=\(hasMarkers), hostsLines=\(contents.split(separator: "\n").count))")
+        }
+        return present
     }
 
     // invariant: markers alone don't count; a real entry must sit inside the block section

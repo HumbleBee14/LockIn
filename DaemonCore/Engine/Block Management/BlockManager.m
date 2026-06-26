@@ -125,7 +125,13 @@ BOOL appendMode = NO;
 
 	// hosts synchronously: it's fast, and the caller verifies the lock via /etc/hosts right after this returns
 	[opQueue waitUntilAllOperationsAreFinished];
-	if (writeHosts) { [hosts addSelfControlBlockFooter]; [hosts writeNewFileContents]; }
+	if (writeHosts) {
+		[hosts addSelfControlBlockFooter];
+		BOOL wrote = [hosts writeNewFileContents];
+		if (!wrote) NSLog(@"BlockManager: ERROR writing /etc/hosts");
+	} else {
+		NSLog(@"BlockManager: hosts blocking disabled (backup failed or block already present) — verify will fail");
+	}
 	[SCHelperToolUtilities clearOSDNSCache];
 
 	if (isAllowlist) {
