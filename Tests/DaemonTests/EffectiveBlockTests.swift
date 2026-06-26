@@ -3,11 +3,9 @@ import XCTest
 
 final class EffectiveBlockTests: XCTestCase {
     private func s(_ id: String, allow: Bool, domains: [String], apps: [String] = []) -> LockSnapshot {
-        LockSnapshot(id: id, mode: .scheduled, windowEnd: Date(timeIntervalSince1970: 1), duration: nil,
+        LockSnapshot(id: id, mode: .scheduled, endsAt: Date(timeIntervalSince1970: 1),
             isAllowlist: allow, appliedDomains: domains, appliedAppBundleIds: apps,
-            appliedSettings: SettingsConfig(), blockSetId: id, blockSetTitle: id,
-            anchorWallTime: Date(timeIntervalSince1970: 0), trustedNowAtLastHeartbeat: Date(timeIntervalSince1970: 0),
-            servedElapsedAtLastHeartbeat: 0, clockSuspicious: false, cumulativeDriftSeconds: 0, bootSessionUUID: "B")
+            appliedSettings: SettingsConfig(), blockSetId: id, blockSetTitle: id)
     }
 
     func testEmpty() {

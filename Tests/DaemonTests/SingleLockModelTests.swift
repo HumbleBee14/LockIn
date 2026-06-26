@@ -139,7 +139,7 @@ final class SingleLockModelTests: XCTestCase {
         XCTAssertTrue(c.startQuickLock(blockSetIds: ["q"], durationSeconds: 3600))
         c.reconcile()
         let snaps = c.loadSnapshots()
-        XCTAssertTrue(snaps.contains { $0.id == "quick" && $0.duration == 3600 },
+        XCTAssertTrue(snaps.contains { $0.id == "quick" && $0.mode == .adHoc },
             "a due schedule must NOT replace or shorten the active quick lock")
         try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg)
     }

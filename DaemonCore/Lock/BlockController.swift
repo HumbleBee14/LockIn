@@ -7,21 +7,17 @@ public final class BlockController {
     private let configStore: ConfigStore
     private let appBlocker: AppBlocking
     private let blocker: WebsiteBlocker
-    private let makeGuard: () -> ClockGuard
-    private var guards: [String: ClockGuard] = [:]
+    private let nowProvider: NowProvider
     private var appliedSnapshotIds: Set<String> = []
 
     init(snapshotStore: LockSnapshotStore, configStore: ConfigStore = .shared,
          appBlocker: AppBlocking = AppBlocker(), blocker: WebsiteBlocker = WebsiteBlocker(),
-         makeGuard: @escaping () -> ClockGuard = {
-             ClockGuard(wall: SystemWallClock(), monotonic: SystemMonotonicClock(),
-                        boot: SystemBootSession(), trusted: TrustedTime.system())
-         }) {
+         nowProvider: NowProvider = SystemNowProvider(trusted: TrustedTime.system())) {
         self.snapshotStore = snapshotStore
         self.configStore = configStore
         self.appBlocker = appBlocker
         self.blocker = blocker
-        self.makeGuard = makeGuard
+        self.nowProvider = nowProvider
     }
 
     public static func makeSystemController() -> BlockController {
@@ -29,12 +25,7 @@ public final class BlockController {
             path: URL(fileURLWithPath: "/Library/Application Support/LockIn/active.plist")))
     }
 
-    private func guardFor(_ id: String) -> ClockGuard {
-        if let g = guards[id] { return g }
-        let g = makeGuard()
-        guards[id] = g
-        return g
-    }
+    private func now() -> Date { nowProvider.now() }
 
     func registerSchedule(_ config: ScheduleConfig) -> Bool {
         // invariant: never mutate an active snapshot; edits affect only rules not yet started
@@ -105,7 +96,7 @@ public final class BlockController {
         guard let r = resolveSets(blockSetIds, in: config) else {
             return "No valid sites to block (the selected sets are empty or mix allow/block modes)."
         }
-        let snap = freshSnapshot(id: "quick", mode: .adHoc, windowEnd: nil, duration: durationSeconds,
+        let snap = freshSnapshot(id: "quick", mode: .adHoc, endsAt: now().addingTimeInterval(durationSeconds),
                                  r: r, settings: config.settings)
         let applied = blocker.apply(domains: r.domains, allowlist: r.isAllowlist,
                                     expandSubdomains: config.settings.expandSubdomains)
@@ -133,28 +124,13 @@ public final class BlockController {
         return true
     }
 
-    // the reconcile tick: heartbeat all, drop expired, apply the effective union, then add newly-due rules
+    // the reconcile tick: drop expired (now >= endsAt), apply the effective union, then add newly-due rules
     func reconcile(calendar: Calendar = .current) {
-        reconcile(calendar: calendar, servedExpiryOnly: false)
-    }
-
-    // servedExpiryOnly (time unresolved): still expire any lock whose tamper-safe clock passed its end,
-    // but don't start new scheduled rules — we can't trust raw wall time to evaluate a fresh window.
-    func reconcile(calendar: Calendar, servedExpiryOnly: Bool) {
-        var snaps = snapshotStore.load().map { guardFor($0.id).heartbeat($0) }
-        let survivors = snaps.filter { snap in
-            // even under suspicion, expire a scheduled lock whose capped trustedNow passed windowEnd:
-            // trustedNow is already tamper-capped, so this can't be a forward-jump bypass, and holding a
-            // lock past its scheduled end isn't protecting anything — it's just stuck.
-            return !guardFor(snap.id).isExpired(snap)
-        }
-        for dropped in snaps where !survivors.contains(where: { $0.id == dropped.id }) {
-            guards[dropped.id] = nil
-        }
-        snaps = survivors
+        let nowUTC = now()
+        var snaps = snapshotStore.load().filter { nowUTC < $0.endsAt }
         let setChanged = appliedSnapshotIds != Set(snaps.map { $0.id })
         applyEffective(snaps, forceRebuild: setChanged)
-        if !servedExpiryOnly { addNewlyDueRules(into: &snaps, calendar: calendar) }
+        addNewlyDueRules(into: &snaps, calendar: calendar, nowUTC: nowUTC)
         appliedSnapshotIds = Set(snaps.map { $0.id })
         if snaps.isEmpty {
             try? snapshotStore.clear()
@@ -181,17 +157,15 @@ public final class BlockController {
         }
     }
 
-    private func addNewlyDueRules(into snaps: inout [LockSnapshot], calendar: Calendar) {
+    private func addNewlyDueRules(into snaps: inout [LockSnapshot], calendar: Calendar, nowUTC: Date) {
         // invariant: config is read ONLY to detect a NEW rule starting; never to mutate a live snapshot
         let config = loadConfig()
-        let now = currentTrustedWallNow(snaps)
         for rule in config.rules {
             guard !snaps.contains(where: { $0.id == rule.id }) else { continue }
-            guard let end = Scheduler.activeWindowEndPublic(rule, at: now, calendar: calendar) else { continue }
+            guard let end = Scheduler.activeWindowEndPublic(rule, at: nowUTC, calendar: calendar) else { continue }
             guard let r = resolveSets(rule.blockSetIds, in: config) else { continue }
             guard r.domains.count <= BlockLimits.maxActiveDomains else { continue }
-            let snap = freshSnapshot(id: rule.id, mode: .scheduled, windowEnd: end, duration: nil,
-                                     r: r, settings: config.settings)
+            let snap = freshSnapshot(id: rule.id, mode: .scheduled, endsAt: end, r: r, settings: config.settings)
             _ = blocker.apply(domains: EffectiveBlock.resolve(snaps + [snap]).domains,
                               allowlist: EffectiveBlock.resolve(snaps + [snap]).isAllowlist,
                               expandSubdomains: config.settings.expandSubdomains)
@@ -199,14 +173,11 @@ public final class BlockController {
         }
     }
 
-    private func freshSnapshot(id: String, mode: BlockMode, windowEnd: Date?, duration: Double?,
+    private func freshSnapshot(id: String, mode: BlockMode, endsAt: Date,
                                r: ResolvedBlock, settings: SettingsConfig) -> LockSnapshot {
-        let now = Date()
-        return LockSnapshot(id: id, mode: mode, windowEnd: windowEnd, duration: duration,
+        LockSnapshot(id: id, mode: mode, endsAt: endsAt,
             isAllowlist: r.isAllowlist, appliedDomains: r.domains, appliedAppBundleIds: r.apps,
-            appliedSettings: settings, blockSetId: r.primaryId, blockSetTitle: r.title,
-            anchorWallTime: now, trustedNowAtLastHeartbeat: now, servedElapsedAtLastHeartbeat: 0,
-            clockSuspicious: false, cumulativeDriftSeconds: 0, bootSessionUUID: SystemBootSession().uuid)
+            appliedSettings: settings, blockSetId: r.primaryId, blockSetTitle: r.title)
     }
 
     private func persistedConfig() -> ScheduleConfig {
@@ -262,22 +233,9 @@ public final class BlockController {
             pfApplied: blocker.isApplied())
     }
 
-    // the countdown shows when the user is FULLY free: the latest end across all active snapshots.
-    // a quick lock's end is a STABLE absolute instant (anchor + duration) so the UI countdown can't
-    // jump — recomputing "now + remaining" each poll would re-anchor it on every refresh.
+    // when the user is fully free: the latest endsAt across active snapshots (stable, won't jump between polls)
     private func latestEnd(_ snaps: [LockSnapshot]) -> Date? {
-        var latest: Date?
-        for s in snaps {
-            let end: Date?
-            switch s.mode {
-            case .scheduled: end = s.windowEnd
-            case .adHoc:
-                guard let d = s.duration else { end = nil; break }
-                end = s.anchorWallTime.addingTimeInterval(d)
-            }
-            if let end, latest == nil || end > latest! { latest = end }
-        }
-        return latest
+        snaps.map { $0.endsAt }.max()
     }
 
     private func nextTriggerDescription(calendar: Calendar) -> String? {
@@ -294,21 +252,8 @@ public final class BlockController {
     func loadConfig() -> ScheduleConfig { configStore.load() ?? ScheduleConfig(rules: []) }
     func loadSnapshots() -> [LockSnapshot] { snapshotStore.load() }
 
-    // max trusted-now across active snapshots, so a new rule is evaluated against held (not raw) time
-    private func currentTrustedWallNow(_ snaps: [LockSnapshot]) -> Date {
-        snaps.map { $0.trustedNowAtLastHeartbeat }.max() ?? Date()
-    }
-
     func resolveDomains(forBlockSetId id: String) -> [String] {
         loadConfig().blockSets.first(where: { $0.id == id })?.domains ?? []
-    }
-
-    // suspicious + offline on any active snapshot => unresolved, so the block is held rather than evaluated
-    public func timeIsResolved() -> Bool {
-        let snaps = snapshotStore.load()
-        guard !snaps.isEmpty else { return true }
-        if guardFor(snaps[0].id).hasTrustedTime() { return true }
-        return !snaps.contains { $0.clockSuspicious }
     }
 
     private func pushAppUnion(_ snaps: [LockSnapshot]) {

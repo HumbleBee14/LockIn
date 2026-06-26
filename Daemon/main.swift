@@ -31,7 +31,7 @@ final class DaemonRuntime {
     }
 
     private func evaluate() {
-        controller.applyDecisionIfNeeded(timeResolved: controller.timeIsResolved())
+        controller.applyDecisionIfNeeded()
         checkOrphan()
     }
 
@@ -51,7 +51,7 @@ final class DaemonRuntime {
         }
     }
 
-    // daemon binary is <App>.app/Contents/MacOS/lockind — two levels up from the executable is the bundle
+    // <App>.app/Contents/MacOS/lockind → three levels up is the .app bundle
     private static func ownAppBundlePath() -> String? {
         var size: UInt32 = 0
         _NSGetExecutablePath(nil, &size)

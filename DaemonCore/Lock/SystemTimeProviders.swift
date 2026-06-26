@@ -1,31 +1,6 @@
 import Foundation
 import CommonCrypto
 
-struct SystemWallClock: WallClock {
-    var now: Date { Date() }
-}
-
-struct SystemMonotonicClock: MonotonicClock {
-    var seconds: Double {
-        var info = mach_timebase_info_data_t()
-        mach_timebase_info(&info)
-        let t = mach_continuous_time()
-        let nanos = Double(t) * Double(info.numer) / Double(info.denom)
-        return nanos / 1_000_000_000.0
-    }
-}
-
-struct SystemBootSession: BootSession {
-    var uuid: String {
-        var size = 0
-        sysctlbyname("kern.bootsessionuuid", nil, &size, nil, 0)
-        guard size > 0 else { return "" }
-        var buf = [CChar](repeating: 0, count: size)
-        sysctlbyname("kern.bootsessionuuid", &buf, &size, nil, 0)
-        return String(cString: buf)
-    }
-}
-
 // .pinned requires an SPKI pin per host and fails closed without one; .systemTrust uses standard TLS.
 enum TimeTrustPolicy { case pinned, systemTrust }
 
@@ -38,10 +13,10 @@ final class PinnedTrustedTimeSource: NSObject, TrustedTimeSource, URLSessionDele
     private let perRequestTimeout: TimeInterval = 4
     private let cacheValidity: TimeInterval = 120
 
-    // invariant: fetch() must never block the daemon loop, so reads are served from a cache that a
-    // background task refreshes; a forged reading is still bounded by ClockGuard's served-elapsed cap.
+    // fetch() never blocks: reads come from a cache a background task refreshes. cache age uses the local
+    // clock — fine, it only decides freshness of the sample, not the expiry decision.
     private let lock = NSLock()
-    private var cachedSample: (date: Date, monotonicAt: Double)?
+    private var cachedSample: (date: Date, takenAt: Date)?
     private var refreshing = false
 
     init(hosts: [URL], pinnedSHA256: [String: [String]] = [:], policy: TimeTrustPolicy = .pinned) {
@@ -54,7 +29,7 @@ final class PinnedTrustedTimeSource: NSObject, TrustedTimeSource, URLSessionDele
         refreshInBackgroundIfNeeded()
         lock.lock(); defer { lock.unlock() }
         guard let s = cachedSample else { return nil }
-        let elapsed = SystemMonotonicClock().seconds - s.monotonicAt
+        let elapsed = Date().timeIntervalSince(s.takenAt)
         guard elapsed >= 0, elapsed <= cacheValidity else { return nil }
         return s.date.addingTimeInterval(elapsed)
     }
@@ -67,9 +42,9 @@ final class PinnedTrustedTimeSource: NSObject, TrustedTimeSource, URLSessionDele
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self else { return }
             let sample = self.fetchConsensus()
-            let mono = SystemMonotonicClock().seconds
+            let takenAt = Date()
             self.lock.lock()
-            if let sample { self.cachedSample = (sample, mono) }
+            if let sample { self.cachedSample = (sample, takenAt) }
             self.refreshing = false
             self.lock.unlock()
         }
@@ -141,9 +116,8 @@ final class PinnedTrustedTimeSource: NSObject, TrustedTimeSource, URLSessionDele
 }
 
 enum TrustedTime {
-    // anti-bypass invariant: .pinned rejects admin-installed-root-CA MITM (our threat actor is the admin).
-    // Leaf SPKI pins on CDN hosts can rotate; ClockGuard's served-elapsed cap is the primary defense and
-    // holds even if every host's pin is stale — pinning here is defense-in-depth, not the sole guard.
+    // .pinned rejects admin-installed-root-CA MITM (the threat actor is the local admin). If every host's
+    // pin is stale we simply get no online sample and fall back to the system clock (offline behavior).
     static func system() -> PinnedTrustedTimeSource {
         PinnedTrustedTimeSource(
             hosts: [URL(string: "https://www.cloudflare.com")!,

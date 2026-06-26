@@ -43,7 +43,7 @@ final class CheapReassertTests: XCTestCase {
         XCTAssertGreaterThan(afterStart, 0, "starting a lock must apply once")
 
         // several heartbeat ticks with the block intact must NOT rebuild
-        for _ in 0..<5 { c.applyDecisionIfNeeded(timeResolved: true) }
+        for _ in 0..<5 { c.applyDecisionIfNeeded() }
         XCTAssertEqual(spy.applyCount, afterStart, "intact block must not be rebuilt every tick")
 
         try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg)
@@ -57,7 +57,7 @@ final class CheapReassertTests: XCTestCase {
         let afterStart = spy.applyCount
 
         spy.present = false  // simulate a tamper that removed the block from hosts/pf
-        c.applyDecisionIfNeeded(timeResolved: true)
+        c.applyDecisionIfNeeded()
         XCTAssertEqual(spy.applyCount, afterStart + 1, "a removed block must be re-asserted within one tick")
 
         try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg)
