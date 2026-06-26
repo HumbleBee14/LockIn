@@ -138,11 +138,14 @@ public final class BlockController {
         reconcile(calendar: calendar, servedExpiryOnly: false)
     }
 
-    // invariant: servedExpiryOnly lifts only served-expired ad-hoc locks; never evaluates scheduled (wall-time) expiry or new rules
+    // servedExpiryOnly (time unresolved): still expire any lock whose tamper-safe clock passed its end,
+    // but don't start new scheduled rules — we can't trust raw wall time to evaluate a fresh window.
     func reconcile(calendar: Calendar, servedExpiryOnly: Bool) {
         var snaps = snapshotStore.load().map { guardFor($0.id).heartbeat($0) }
         let survivors = snaps.filter { snap in
-            if servedExpiryOnly && snap.mode != .adHoc { return true }
+            // even under suspicion, expire a scheduled lock whose capped trustedNow passed windowEnd:
+            // trustedNow is already tamper-capped, so this can't be a forward-jump bypass, and holding a
+            // lock past its scheduled end isn't protecting anything — it's just stuck.
             return !guardFor(snap.id).isExpired(snap)
         }
         for dropped in snaps where !survivors.contains(where: { $0.id == dropped.id }) {

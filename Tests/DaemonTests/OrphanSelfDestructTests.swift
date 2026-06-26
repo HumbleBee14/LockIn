@@ -3,6 +3,15 @@ import XCTest
 
 @MainActor
 final class OrphanSelfDestructTests: XCTestCase {
+    // isolated blocker: liveBlockPresent reflects only THIS test's state, never the real /etc/hosts
+    private final class IsolatedBlocker: WebsiteBlocker {
+        var present = false
+        init() { super.init(forceVerified: true) }
+        override func apply(domains: [String], allowlist: Bool, expandSubdomains: Bool) -> Bool { present = true; return true }
+        override func liveBlockPresent() -> Bool { present }
+        override func clear() { present = false }
+    }
+
     private func make(_ n: String, locked: Bool) throws -> (BlockController, URL, URL) {
         let t = FileManager.default.temporaryDirectory
         let url = t.appendingPathComponent("\(n)-active.plist")
@@ -13,7 +22,7 @@ final class OrphanSelfDestructTests: XCTestCase {
         let set = BlockSet(id: "a", name: "Ads", domains: ["x.com"], appBundleIds: [], mode: .blocklist)
         try store.save(ScheduleConfig(rules: [], blockSets: [set]))
         let c = BlockController(snapshotStore: LockSnapshotStore(path: url), configStore: store,
-                                appBlocker: SpyAppBlocker(), blocker: WebsiteBlocker(forceVerified: true))
+                                appBlocker: SpyAppBlocker(), blocker: IsolatedBlocker())
         if locked { _ = c.startQuickLock(blockSetIds: ["a"], durationSeconds: 3600) }
         return (c, url, cfg)
     }
