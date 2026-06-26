@@ -135,19 +135,28 @@ BOOL appendMode = NO;
 	[SCHelperToolUtilities clearOSDNSCache];
 
 	if (isAllowlist) {
-		// allowlist is pf-only (no hosts gate), so its caller needs the pf result; lists are small
-		[pq waitUntilAllOperationsAreFinished];
-		_pfDidEnable = ([p startBlock] == 0);
-		[SCHelperToolUtilities clearOSDNSCache];
+		// allowlist is pf-only, so the caller needs the pf result — run on the serial queue and wait
+		dispatch_sync([BlockManager pfSerialQueue], ^{
+			[pq waitUntilAllOperationsAreFinished];
+			self->_pfDidEnable = ([p startBlock] == 0);
+			[SCHelperToolUtilities clearOSDNSCache];
+		});
 		return;
 	}
 
-	// blocklist pf is best-effort and slow — harden it in the background; we don't gate success on it
-	dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+	// pf hardening runs off the caller; serialized so overlapping locks can't race /etc/pf.conf and the anchor
+	dispatch_async([BlockManager pfSerialQueue], ^{
 		[pq waitUntilAllOperationsAreFinished];
 		[p startBlock];
 		[SCHelperToolUtilities clearOSDNSCache];
 	});
+}
+
++ (dispatch_queue_t)pfSerialQueue {
+	static dispatch_queue_t q;
+	static dispatch_once_t once;
+	dispatch_once(&once, ^{ q = dispatch_queue_create("com.humblebee.lockin.pf", DISPATCH_QUEUE_SERIAL); });
+	return q;
 }
 
 - (void)enqueueBlockEntry:(SCBlockEntry*)entry {
@@ -236,13 +245,22 @@ BOOL appendMode = NO;
 }
 
 - (BOOL)resetHostsToDefault {
-	[pf stopBlock: true];
-	BOOL hostSuccess = [hostBlockerSet writeDefaultHostsFile];
-	[SCHelperToolUtilities clearOSDNSCache];
+	__block BOOL hostSuccess = NO;
+	dispatch_sync([BlockManager pfSerialQueue], ^{
+		[pf stopBlock: true];
+		hostSuccess = [hostBlockerSet writeDefaultHostsFile];
+		[SCHelperToolUtilities clearOSDNSCache];
+	});
 	return hostSuccess;
 }
 
 - (BOOL)clearBlock {
+	__block BOOL result = NO;
+	dispatch_sync([BlockManager pfSerialQueue], ^{ result = [self clearBlockLocked]; });
+	return result;
+}
+
+- (BOOL)clearBlockLocked {
 	[pf stopBlock: false];
 	BOOL pfSuccess = ![pf containsSelfControlBlock];
 
@@ -346,11 +364,15 @@ static const CFTimeInterval kDNSResolveTimeout = 2.0;
 + (NSArray*)ipAddressesForDomainName:(NSString*)domainName {
     if(domainName == nil) return @[];
 
-	NSDate* startedResolving = [NSDate date];
-    // dedicated thread + timed semaphore: a worker-queue run loop won't service the CFHost source (deadlocks)
-    __block NSArray<NSData*>* addresses = nil;
+    // dedicated thread + timed semaphore: a worker-queue run loop won't service the CFHost source (deadlocks).
+    // the resolver fully builds the result and hands it off through a lock — the main side reads it ONLY
+    // after wait() returns 0, so there is no data race and a timed-out resolver can't be read mid-write.
+    NSLock* handoff = [[NSLock alloc] init];
+    __block NSArray<NSString*>* resolved = nil;
     dispatch_semaphore_t done = dispatch_semaphore_create(0);
+
     NSThread* resolver = [[NSThread alloc] initWithBlock:^{
+        NSMutableArray* ips = [NSMutableArray array];
         CFHostRef host = CFHostCreateWithName(kCFAllocatorDefault, (__bridge CFStringRef)domainName);
         CFStreamError err;
         CFHostScheduleWithRunLoop(host, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
@@ -358,43 +380,26 @@ static const CFTimeInterval kDNSResolveTimeout = 2.0;
             CFRunLoopRunInMode(kCFRunLoopDefaultMode, kDNSResolveTimeout, false);
             Boolean ok = false;
             NSArray* result = (__bridge NSArray*)CFHostGetAddressing(host, &ok);
-            if (ok && result) addresses = [result copy];
+            if (ok) for (NSData* addrData in result) {
+                NSString* ipStr = [BlockManager stringForAddress: addrData error: NULL];
+                if (ipStr) [ips addObject: ipStr];
+            }
         }
         CFHostUnscheduleFromRunLoop(host, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
         CFRelease(host);
+        [handoff lock]; resolved = ips; [handoff unlock];
         dispatch_semaphore_signal(done);
     }];
     [resolver start];
 
     if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW,
-            (int64_t)((kDNSResolveTimeout + 0.5) * NSEC_PER_SEC))) != 0 || addresses == nil) {
-        NSLog(@"BlockManager: DNS resolve timed out/failed for %@ (%.1fs cap) — skipping pf, hosts still blocks it", domainName, kDNSResolveTimeout);
+            (int64_t)((kDNSResolveTimeout + 0.5) * NSEC_PER_SEC))) != 0) {
+        // timed out: leave the orphaned resolver to finish on its own and skip pf for this domain (hosts still blocks it)
+        NSLog(@"BlockManager: DNS resolve timed out for %@ (%.1fs cap) — skipping pf", domainName, kDNSResolveTimeout);
         return @[];
     }
-
-    NSMutableArray* stringAddresses = [NSMutableArray array];
-    if (addresses != NULL) {
-        for (NSData* addrData in addresses) {
-            NSError* parseErr;
-            NSString* ipStr = [BlockManager stringForAddress: addrData error: &parseErr];
-            if (ipStr) {
-                [stringAddresses addObject: ipStr];
-            } else {
-                NSLog(@"BlockManager: Warning: Failed to parse IP struct for domain %@ with error %@", domainName, parseErr);
-            }
-        }
-    } else {
-        NSLog(@"BlockManager: Warning: failed to resolve addresses for %@", domainName);
-    }
-
-	// log slow resolutions
-	NSDate* finishedResolving  = [NSDate date];
-	NSTimeInterval resolutionTime = [finishedResolving timeIntervalSinceDate: startedResolving];
-	if (resolutionTime > 2.5) {
-		NSLog(@"BlockManager: Warning: took %f seconds to resolve %@", resolutionTime, domainName);
-	}
-
-	return stringAddresses;
+    [handoff lock]; NSArray* out = resolved ?: @[]; [handoff unlock];
+    return out;
 }
 
 + (NSPredicate*)googleTesterPredicate {

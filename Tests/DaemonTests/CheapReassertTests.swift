@@ -12,6 +12,7 @@ private final class SpyBlocker: WebsiteBlocker {
         return true
     }
     override func liveBlockPresent() -> Bool { present }
+    override func blockIntact(domains: [String], allowlist: Bool, expandSubdomains: Bool) -> Bool { present }
     override func clear() { present = false }
 }
 

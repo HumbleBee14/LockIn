@@ -8,7 +8,7 @@ class WebsiteBlocker {
         self.forceVerified = forceVerified
     }
 
-    // www.↔apex pairing — always on (browsers redirect youtube.com→www.youtube.com; blocking only one surprises)
+    // www.↔apex pairing for bare two-label domains (youtube.com↔www.youtube.com); multi-label hosts unchanged
     static func wwwPair(_ domain: String) -> [String] {
         if domain.hasPrefix("www.") {
             let apex = String(domain.dropFirst(4))
@@ -131,12 +131,23 @@ class WebsiteBlocker {
         return contents[h.upperBound..<f.lowerBound].contains("0.0.0.0")
     }
 
-    func reassertIfTampered(domains: [String], allowlist: Bool, expandSubdomains: Bool) {
-        // re-apply if a tamper removed the block from EITHER pf or the hosts file mid-window
+    // tick integrity check: catches partial tamper liveBlockPresent() misses, without diffing every entry
+    func blockIntact(domains: [String], allowlist: Bool, expandSubdomains: Bool) -> Bool {
+        if allowlist { return isApplied() }
         let entries = Self.entries(for: domains, expand: expandSubdomains)
-        let hostsIntact = allowlist || Self.hostsBlockApplied(entries: entries)
-        if !isApplied() || !hostsIntact {
-            apply(domains: domains, allowlist: allowlist, expandSubdomains: expandSubdomains)
-        }
+        guard !entries.isEmpty else { return true }
+        guard let contents = try? String(contentsOfFile: "/etc/hosts", encoding: .utf8) else { return false }
+        return Self.sectionIntact(in: contents, entries: entries)
+    }
+
+    static func sectionIntact(in contents: String, entries: [String]) -> Bool {
+        let header = "# BEGIN SELFCONTROL BLOCK"
+        let footer = "# END SELFCONTROL BLOCK"
+        guard let h = contents.range(of: header),
+              let f = contents.range(of: footer, range: h.upperBound..<contents.endIndex) else { return false }
+        let section = contents[h.upperBound..<f.lowerBound]
+        if section.components(separatedBy: "0.0.0.0").count - 1 < entries.count { return false }
+        let probes = [entries.first, entries[entries.count / 2], entries.last].compactMap { $0 }
+        return probes.allSatisfy { section.contains($0) }
     }
 }

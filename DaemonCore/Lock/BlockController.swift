@@ -144,8 +144,8 @@ public final class BlockController {
     private func applyEffective(_ snaps: [LockSnapshot], forceRebuild: Bool) {
         guard let first = snaps.first else { return }
         let e = EffectiveBlock.resolve(snaps)
-        // rebuild only when the set changed or a tamper removed the block; never every tick (75K rebuild froze the daemon)
-        if forceRebuild || !blocker.liveBlockPresent() {
+        if forceRebuild || !blocker.blockIntact(domains: e.domains, allowlist: e.isAllowlist,
+                                                 expandSubdomains: first.appliedSettings.expandSubdomains) {
             _ = blocker.apply(domains: e.domains, allowlist: e.isAllowlist,
                               expandSubdomains: first.appliedSettings.expandSubdomains)
         }
