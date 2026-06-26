@@ -13,12 +13,18 @@ final class AppBlocker: AppBlocking, @unchecked Sendable {
     private var blocked: Set<String> = []
     private var timer: DispatchSourceTimer?
 
+    // invariant: never kill LockIn's own bundle family — a self-block would brick the app in a relaunch loop
+    static let neverKill: Set<String> = [
+        "com.humblebee.lockin", "com.humblebee.lockin.agent",
+        "com.humblebee.lockin.daemon", "com.humblebee.lockin.notifier"
+    ]
+
     private let pollInterval: DispatchTimeInterval = .milliseconds(500)
     private let pollLeeway: DispatchTimeInterval = .milliseconds(50)
 
     func update(active: Bool, bundleIds: [String]) {
         lock.lock()
-        blocked = active ? Set(bundleIds) : []
+        blocked = active ? Set(bundleIds).subtracting(Self.neverKill) : []
         let shouldRun = !blocked.isEmpty
         let running = timer != nil
         lock.unlock()
@@ -66,7 +72,8 @@ final class AppBlocker: AppBlocking, @unchecked Sendable {
         for i in 0..<n {
             let pid = pids[i]
             guard pid != 0 else { continue }
-            guard let bid = bundleID(forPID: pid), targets.contains(bid) else { continue }
+            guard let bid = bundleID(forPID: pid), targets.contains(bid),
+                  !Self.neverKill.contains(bid) else { continue }
             if kill(pid, SIGTERM) != 0 {
                 if kill(pid, SIGKILL) != 0 {
                     LockInLog.error("AppBlocker kill failed for \(bid) pid \(pid) errno \(errno)")
