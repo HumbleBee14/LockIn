@@ -7,16 +7,14 @@ final class WatchdogTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("active-wd.plist")
         try? FileManager.default.removeItem(at: url)
         let store = LockSnapshotStore(path: url)
-        try store.save([LockSnapshot(id: "r", mode: .scheduled, windowEnd: Date(timeIntervalSinceNow: 3600),
-            duration: nil, isAllowlist: false, appliedDomains: ["x.com"], appliedAppBundleIds: [],
-            appliedSettings: SettingsConfig(), blockSetId: "b", blockSetTitle: "B", anchorWallTime: Date(),
-            trustedNowAtLastHeartbeat: Date(), servedElapsedAtLastHeartbeat: 0,
-            clockSuspicious: false, cumulativeDriftSeconds: 0, bootSessionUUID: "B")])
+        try store.save([LockSnapshot(id: "r", mode: .scheduled, endsAt: Date(timeIntervalSinceNow: 3600),
+            isAllowlist: false, appliedDomains: ["x.com"], appliedAppBundleIds: [],
+            appliedSettings: SettingsConfig(), blockSetId: "b", blockSetTitle: "B")])
         let controller = BlockController(snapshotStore: store,
             configStore: ConfigStore(path: FileManager.default.temporaryDirectory
                 .appendingPathComponent("config-wd.plist")),
             appBlocker: SpyAppBlocker(), blocker: WebsiteBlocker(forceVerified: true))
-        controller.applyDecisionIfNeeded(timeResolved: true)
+        controller.applyDecisionIfNeeded()
         XCTAssertFalse(store.load().isEmpty,
                       "website lock state is owned by the daemon and unaffected by the agent")
         try? FileManager.default.removeItem(at: url)

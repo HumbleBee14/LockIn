@@ -3,18 +3,16 @@ import XCTest
 
 @MainActor
 final class BootRaceTests: XCTestCase {
-    func testBlockHeldDuringPostBootBeforeTimeResolved() throws {
+    func testBlockHeldAfterRestartUntilEnd() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("active-boot.plist")
         let store = LockSnapshotStore(path: url)
-        try store.save([LockSnapshot(id: "r", mode: .scheduled, windowEnd: Date(timeIntervalSinceNow: 3600),
-            duration: nil, isAllowlist: false, appliedDomains: ["x.com"], appliedAppBundleIds: [],
-            appliedSettings: SettingsConfig(), blockSetId: "b", blockSetTitle: "B", anchorWallTime: Date(),
-            trustedNowAtLastHeartbeat: Date(), servedElapsedAtLastHeartbeat: 0,
-            clockSuspicious: false, cumulativeDriftSeconds: 0, bootSessionUUID: "B")])
+        try store.save([LockSnapshot(id: "r", mode: .scheduled, endsAt: Date(timeIntervalSinceNow: 3600),
+            isAllowlist: false, appliedDomains: ["x.com"], appliedAppBundleIds: [],
+            appliedSettings: SettingsConfig(), blockSetId: "b", blockSetTitle: "B")])
         let controller = BlockController(snapshotStore: store, configStore: ConfigStore(path: tmpConfig()),
                                          appBlocker: SpyAppBlocker(), blocker: WebsiteBlocker(forceVerified: true))
-        controller.applyDecisionIfNeeded(timeResolved: false)
-        XCTAssertFalse(store.load().isEmpty, "must hold the block until time resolves")
+        controller.applyDecisionIfNeeded()
+        XCTAssertFalse(store.load().isEmpty, "a not-yet-expired lock survives a daemon restart")
         try? FileManager.default.removeItem(at: url)
     }
 

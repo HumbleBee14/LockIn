@@ -1,6 +1,6 @@
 import Foundation
 
-final class WebsiteBlocker {
+class WebsiteBlocker {
     // forces apply() to report success in tests, which can't write /etc/hosts or enable pf
     private let forceVerified: Bool
 
@@ -8,11 +8,20 @@ final class WebsiteBlocker {
         self.forceVerified = forceVerified
     }
 
+    // www.↔apex pairing — always on (browsers redirect youtube.com→www.youtube.com; blocking only one surprises)
+    static func wwwPair(_ domain: String) -> [String] {
+        if domain.hasPrefix("www.") {
+            let apex = String(domain.dropFirst(4))
+            return apex.split(separator: ".").count == 2 ? [apex, domain] : [domain]
+        }
+        return domain.split(separator: ".").count == 2 ? [domain, "www.\(domain)"] : [domain]
+    }
+
+    // toggle-gated: numbered-CDN enumeration on top of www pairing
     static func expand(_ domain: String) -> [String] {
         let apex = domain.hasPrefix("www.") ? String(domain.dropFirst(4)) : domain
         if let numbered = enumerateNumberedPrefix(apex) { return numbered }
-        // pair www.↔apex only for bare apex domains; leave already-subdomained hosts as-is
-        return apex.split(separator: ".").count == 2 ? [apex, "www.\(apex)"] : [apex]
+        return wwwPair(domain)
     }
 
     // cdn9.host.com → cdn1..cdn10.host.com (a numbered first label implies sibling hosts)
@@ -28,28 +37,44 @@ final class WebsiteBlocker {
     }
 
     static func entries(for domains: [String], expand: Bool) -> [String] {
-        let raw = expand ? domains.flatMap { Self.expand($0) } : domains
-        // hard ceiling on actual /etc/hosts lines — too many can hang mDNSResponder
-        return raw.count > BlockLimits.maxHostsEntries
-            ? Array(raw.prefix(BlockLimits.maxHostsEntries)) : raw
+        let raw = domains.flatMap { expand ? Self.expand($0) : Self.wwwPair($0) }
+        var seen = Set<String>(); var out: [String] = []
+        for d in raw where seen.insert(d).inserted { out.append(d) }
+        // cap /etc/hosts lines — too many can hang mDNSResponder
+        return out.count > BlockLimits.maxHostsEntries ? Array(out.prefix(BlockLimits.maxHostsEntries)) : out
     }
 
     @discardableResult
     func apply(domains: [String], allowlist: Bool, expandSubdomains: Bool) -> Bool {
         let entries = Self.entries(for: domains, expand: expandSubdomains)
         let manager = BlockManager(asAllowlist: allowlist, allowLocal: true,
-                                   includeCommonSubdomains: true, includeLinkedDomains: false)
+                                   includeCommonSubdomains: false, includeLinkedDomains: false)
         manager?.prepareToAddBlock()
         manager?.addBlockEntries(from: entries)
         manager?.finalizeBlock()
         if forceVerified { return true }
         // invariant: blocklist must land in /etc/hosts; allowlist holds only if pfctl -E actually enabled pf
-        return allowlist ? (manager?.pfDidEnable ?? false) : Self.hostsBlockApplied(entries: entries)
+        if allowlist {
+            let ok = manager?.pfDidEnable ?? false
+            if !ok { LockInLog.error("apply: allowlist pf did not enable (\(entries.count) entries)") }
+            return ok
+        }
+        let ok = Self.hostsBlockApplied(entries: entries)
+        if !ok { LockInLog.error("apply: hosts verify failed for \(entries.count) entries — block not present in /etc/hosts") }
+        return ok
     }
 
     static func hostsBlockApplied(entries: [String]) -> Bool {
-        guard let contents = try? String(contentsOfFile: "/etc/hosts", encoding: .utf8) else { return false }
-        return blockPresent(in: contents, entries: entries)
+        guard let contents = try? String(contentsOfFile: "/etc/hosts", encoding: .utf8) else {
+            LockInLog.error("hosts verify: /etc/hosts unreadable")
+            return false
+        }
+        let present = blockPresent(in: contents, entries: entries)
+        if !present {
+            let hasMarkers = contents.contains("# BEGIN SELFCONTROL BLOCK")
+            LockInLog.error("hosts verify: block-not-present (markers=\(hasMarkers), hostsLines=\(contents.split(separator: "\n").count))")
+        }
+        return present
     }
 
     // invariant: markers alone don't count; a real entry must sit inside the block section
@@ -70,7 +95,7 @@ final class WebsiteBlocker {
         let entries = Self.entries(for: newDomains, expand: expandSubdomains)
         guard !entries.isEmpty else { return false }
         let manager = BlockManager(asAllowlist: false, allowLocal: true,
-                                   includeCommonSubdomains: true, includeLinkedDomains: false)
+                                   includeCommonSubdomains: false, includeLinkedDomains: false)
         manager?.enterAppendMode()
         manager?.addBlockEntries(from: entries)
         manager?.finishAppending()
