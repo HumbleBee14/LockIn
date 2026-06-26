@@ -174,8 +174,10 @@ BOOL appendMode = NO;
             // for blocklist blocks, just skip blocking Google by IP
             // because we'd end up blocking more than the user wants (i.e. Search/Mail)
             // rely on the domain-level blocking instead
-        } else {
-            // non-Google domains just get looked up and blocked by IP
+        } else if (isAllowlist) {
+            // allowlists must resolve to IPs (pf matches IPs, not names) and are small enough to afford it.
+            // blocklists skip DNS entirely: /etc/hosts blocks by name with no lookup, so per-domain resolution
+            // was pure cost — and at 75K domains it froze the daemon. Domain-level hosts blocking covers them.
             NSArray* addresses = [BlockManager ipAddressesForDomainName: entry.hostname];
 
             for(NSUInteger i = 0; i < [addresses count]; i++) {
@@ -383,30 +385,30 @@ static const CFTimeInterval kDNSResolveTimeout = 2.0;
     if(domainName == nil) return @[];
 
 	NSDate* startedResolving = [NSDate date];
-    CFHostRef cfHost = CFHostCreateWithName(kCFAllocatorDefault, (__bridge CFStringRef)domainName);
-    CFStreamError streamErr;
+    // Resolve on a dedicated run-loop thread fronted by a semaphore deadline. Doing this on an
+    // NSOperationQueue worker (via CFRunLoopRunInMode) can deadlock — the worker's run loop never
+    // services the host source. A private thread + timed semaphore caps the wait on any caller.
+    __block NSArray<NSData*>* addresses = nil;
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    NSThread* resolver = [[NSThread alloc] initWithBlock:^{
+        CFHostRef host = CFHostCreateWithName(kCFAllocatorDefault, (__bridge CFStringRef)domainName);
+        CFStreamError err;
+        CFHostScheduleWithRunLoop(host, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+        if (CFHostStartInfoResolution(host, kCFHostAddresses, &err)) {
+            CFRunLoopRunInMode(kCFRunLoopDefaultMode, kDNSResolveTimeout, false);
+            Boolean ok = false;
+            NSArray* result = (__bridge NSArray*)CFHostGetAddressing(host, &ok);
+            if (ok && result) addresses = [result copy];
+        }
+        CFHostUnscheduleFromRunLoop(host, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+        CFRelease(host);
+        dispatch_semaphore_signal(done);
+    }];
+    [resolver start];
 
-    // scheduled form + bounded run loop lets us cap the otherwise-unbounded resolve
-    CFHostScheduleWithRunLoop(cfHost, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
-    Boolean started = CFHostStartInfoResolution(cfHost, kCFHostAddresses, &streamErr);
-    if (started) {
-        CFRunLoopRunInMode(kCFRunLoopDefaultMode, kDNSResolveTimeout, false);
-    }
-    CFHostUnscheduleFromRunLoop(cfHost, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
-    CFHostCancelInfoResolution(cfHost, kCFHostAddresses);
-
-    if (!started || streamErr.error) {
-        NSLog(@"BlockManager: Warning: failed to resolve addresses for %@ with stream error", domainName);
-        CFRelease(cfHost);
-        return @[];
-    }
-
-    Boolean resolved = false;
-    NSArray<NSData*>* addresses = (__bridge NSArray*)CFHostGetAddressing(cfHost, &resolved);
-    if (!resolved) {
-        // timed out before the run loop saw a result — skip pf for this domain (hosts still blocks it)
-        NSLog(@"BlockManager: Warning: DNS resolve timed out for %@ after %.1fs", domainName, kDNSResolveTimeout);
-        CFRelease(cfHost);
+    if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW,
+            (int64_t)((kDNSResolveTimeout + 0.5) * NSEC_PER_SEC))) != 0 || addresses == nil) {
+        NSLog(@"BlockManager: DNS resolve timed out/failed for %@ (%.1fs cap) — skipping pf, hosts still blocks it", domainName, kDNSResolveTimeout);
         return @[];
     }
 
@@ -431,8 +433,6 @@ static const CFTimeInterval kDNSResolveTimeout = 2.0;
 	if (resolutionTime > 2.5) {
 		NSLog(@"BlockManager: Warning: took %f seconds to resolve %@", resolutionTime, domainName);
 	}
-    
-    CFRelease(cfHost);
 
 	return stringAddresses;
 }
