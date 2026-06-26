@@ -29,7 +29,6 @@ struct ActiveLockView: View {
                 addDomainField
             }
 
-            Disclosures.cannotCancel.frame(maxWidth: 420)
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

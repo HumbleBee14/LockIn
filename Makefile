@@ -44,7 +44,7 @@ run: build
 
 RELEASE_APP := $(DERIVED)/Build/Products/Release/LockIn.app
 TEAM_ID := 252N2WS4Y3
-VERSION ?= 0.0.0
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo 0.0.0)
 
 .PHONY: release
 release: gen
@@ -70,7 +70,8 @@ local: gen
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration Release \
 		-derivedDataPath $(DERIVED) build \
 		CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Developer ID Application" \
-		DEVELOPMENT_TEAM=$(TEAM_ID) OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime"
+		DEVELOPMENT_TEAM=$(TEAM_ID) OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime" \
+		MARKETING_VERSION=$(VERSION)
 	pkill -x LockIn 2>/dev/null || true
 	rm -rf /Applications/LockIn.app
 	cp -R "$(RELEASE_APP)" /Applications/LockIn.app

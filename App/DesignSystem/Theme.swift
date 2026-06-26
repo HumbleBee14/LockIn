@@ -8,6 +8,7 @@ enum Theme {
     static let mistDim = Color(red: 0.541, green: 0.565, blue: 0.651)
     static let ember = Color(red: 0.910, green: 0.388, blue: 0.227)
     static let sage = Color(red: 0.435, green: 0.718, blue: 0.604)
+    static let amber = Color(red: 0.914, green: 0.706, blue: 0.298)
 
     enum Spacing {
         static let xs: CGFloat = 4

@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var uninstallResult: String?
     @State private var uninstallDone = false
     private let installer = InstallerService()
+    @StateObject private var health = HelperHealth()
 
     var body: some View {
         ScrollView {
@@ -38,6 +39,7 @@ struct SettingsView: View {
                 .card()
                 .frame(maxWidth: 520)
 
+                protectionCard
                 recoveryCard
                 developerFooter
                 Spacer()
@@ -78,6 +80,59 @@ struct SettingsView: View {
                 .textSelection(.enabled)
         }
         .frame(maxWidth: 520)
+    }
+
+    private var protectionCard: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+            HStack(spacing: Theme.Spacing.s) {
+                Circle().fill(protectionColor).frame(width: 10, height: 10)
+                Text(protectionTitle).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.mist)
+                Spacer()
+                if health.status.state == .degraded {
+                    Button(health.reactivating ? "Reactivating…" : "Reactivate") {
+                        Task { await health.reactivate() }
+                    }
+                    .buttonStyle(.bordered).tint(Theme.ember).disabled(health.reactivating)
+                }
+            }
+            if health.status.installed {
+                protectionRow("Website protection", health.status.websiteActive)
+                protectionRow("App protection", health.status.appActive)
+            } else {
+                Text("Set up protection from Quick Lock or Schedule to get started.")
+                    .font(.system(size: 11)).foregroundStyle(Theme.mistDim)
+            }
+        }
+        .card()
+        .frame(maxWidth: 520)
+        .task { await health.refresh() }
+    }
+
+    private func protectionRow(_ title: String, _ active: Bool) -> some View {
+        HStack(spacing: Theme.Spacing.s) {
+            Image(systemName: active ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(active ? Theme.sage : Theme.amber)
+                .font(.system(size: 12))
+            Text(title).font(.system(size: 12)).foregroundStyle(Theme.mist)
+            Spacer()
+            Text(active ? "Active" : "Paused").font(.system(size: 11)).foregroundStyle(Theme.mistDim)
+        }
+    }
+
+    private var protectionColor: Color {
+        switch health.status.state {
+        case .allActive: return Theme.sage
+        case .degraded: return Theme.amber
+        case .notInstalled: return Theme.mistDim
+        }
+    }
+
+    private var protectionTitle: String {
+        switch health.status.state {
+        case .allActive: return "Protection active"
+        case .degraded: return "Protection paused"
+        case .notInstalled: return "Protection not set up"
+        }
     }
 
     private var recoveryCard: some View {

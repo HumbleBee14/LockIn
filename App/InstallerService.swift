@@ -34,14 +34,20 @@ final class InstallerService: ObservableObject {
         refreshStatus()
     }
 
-    // the agent registers cleanly only after the daemon is approved; called repeatedly by the poll
+    // the agent registers only after the daemon is approved; called on every launch.
+    // invariant: re-register unconditionally — SMAppService reports .enabled even when the launchd
+    // job is gone (a BTM desync), so a notRegistered-only guard would never recover a dead agent.
     func registerAgentIfDaemonReady() {
         refreshStatus()
-        guard daemonStatus == .enabled else { return }
-        if agentStatus == .notRegistered || agentStatus == .notFound {
-            do { try agent.register() } catch { LockInLog.error("agent.register failed", error) }
-            refreshStatus()
-        }
+        guard daemonStatus == .enabled, agentStatus != .requiresApproval else { return }
+        do { try agent.register() } catch { LockInLog.error("agent.register failed", error) }
+        refreshStatus()
+    }
+
+    // true when every required helper is installed; the agent re-bootstraps itself on launch
+    func helpersInstalled() -> Bool {
+        refreshStatus()
+        return daemonStatus == .enabled && agentStatus == .enabled
     }
 
     // required website-blocking helper; re-registers a stale enabled job that no longer answers
