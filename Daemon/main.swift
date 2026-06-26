@@ -7,6 +7,9 @@ final class DaemonRuntime {
     private let listener: DaemonListener
     private var powerNotifier: PowerNotifier?
     private var timer: Timer?
+    // require several consecutive misses so a transient upgrade gap (rm + cp of the bundle) isn't read as orphaned
+    private var orphanMisses = 0
+    private let orphanThreshold = 3
 
     init() {
         listener = DaemonListener(controller: controller)
@@ -29,6 +32,42 @@ final class DaemonRuntime {
 
     private func evaluate() {
         controller.applyDecisionIfNeeded(timeResolved: controller.timeIsResolved())
+        checkOrphan()
+    }
+
+    // self-destruct once the owning app is gone and no lock is held — otherwise an uninstalled app
+    // leaves a root daemon thrashing forever (KeepAlive can't relaunch it: its binary lives in the deleted bundle)
+    private func checkOrphan() {
+        guard let bundle = Self.ownAppBundlePath() else { return }
+        if controller.isOrphaned(appBundlePath: bundle) {
+            orphanMisses += 1
+            guard orphanMisses >= orphanThreshold else { return }
+            FileHandle.standardError.write(Data("[LockIn] orphaned (app gone, no lock) — self-uninstalling\n".utf8))
+            _ = controller.prepareUninstall()
+            Self.bootoutSelf()
+            exit(0)
+        } else {
+            orphanMisses = 0
+        }
+    }
+
+    // daemon binary is <App>.app/Contents/MacOS/lockind — two levels up from the executable is the bundle
+    private static func ownAppBundlePath() -> String? {
+        var size: UInt32 = 0
+        _NSGetExecutablePath(nil, &size)
+        var buf = [CChar](repeating: 0, count: Int(size))
+        guard _NSGetExecutablePath(&buf, &size) == 0 else { return nil }
+        let exe = URL(fileURLWithPath: String(cString: buf)).resolvingSymlinksInPath()
+        return exe.deletingLastPathComponent().deletingLastPathComponent()
+                  .deletingLastPathComponent().path
+    }
+
+    private static func bootoutSelf() {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        task.arguments = ["bootout", "system/com.humblebee.lockin.daemon"]
+        try? task.run()
+        task.waitUntilExit()
     }
 }
 
