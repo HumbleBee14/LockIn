@@ -10,26 +10,32 @@ final class NotifierDelegate: NSObject, NSApplicationDelegate {
         let center = UNUserNotificationCenter.current()
         if args["prime"] != nil {
             center.requestAuthorization(options: [.alert, .sound]) { _, _ in
-                DispatchQueue.main.async { NSApp.terminate(nil) }
+                Self.onMain { NSApp.terminate(nil) }
             }
             return
         }
         guard let name = args["name"] else { NSApp.terminate(nil); return }
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-            guard granted else { DispatchQueue.main.async { NSApp.terminate(nil) }; return }
-            let content = UNMutableNotificationContent()
-            content.title = "\(name) is blocked"
-            content.body = args["ends"].map { "Blocked by LockIn until \($0)." } ?? "Blocked by LockIn."
-            if let icon = args["icon"], FileManager.default.fileExists(atPath: icon),
-               let attach = try? UNNotificationAttachment(identifier: "icon",
-                                                          url: URL(fileURLWithPath: icon)) {
-                content.attachments = [attach]
-            }
-            let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-            center.add(req) { _ in
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { NSApp.terminate(nil) }
+            guard granted else { Self.onMain { NSApp.terminate(nil) }; return }
+            Self.onMain {
+                let content = UNMutableNotificationContent()
+                content.title = "\(name) is blocked"
+                content.body = args["ends"].map { "Blocked by LockIn until \($0)." } ?? "Blocked by LockIn."
+                if let icon = args["icon"], FileManager.default.fileExists(atPath: icon),
+                   let attach = try? UNNotificationAttachment(identifier: "icon",
+                                                              url: URL(fileURLWithPath: icon)) {
+                    content.attachments = [attach]
+                }
+                let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+                center.add(req) { _ in
+                    Self.onMain { DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { NSApp.terminate(nil) } }
+                }
             }
         }
+    }
+
+    private static func onMain(_ work: @escaping () -> Void) {
+        if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
     }
 
     private func parseArgs() -> [String: String] {

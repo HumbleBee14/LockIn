@@ -108,6 +108,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.humblebee.lockin.agent
         GENERATE_INFOPLIST_FILE: YES
         CREATE_INFOPLIST_SECTION_IN_BINARY: YES
+        INFOPLIST_KEY_LSUIElement: YES
   LockInNotifier:
     type: application
     platform: macOS

@@ -19,8 +19,8 @@ final class AppBlocker: AppBlocking, @unchecked Sendable {
         "com.humblebee.lockin.daemon", "com.humblebee.lockin.notifier"
     ]
 
-    private let pollInterval: DispatchTimeInterval = .milliseconds(500)
-    private let pollLeeway: DispatchTimeInterval = .milliseconds(50)
+    private let pollInterval: DispatchTimeInterval = .milliseconds(1000)
+    private let pollLeeway: DispatchTimeInterval = .milliseconds(100)
 
     func update(active: Bool, bundleIds: [String]) {
         lock.lock()
