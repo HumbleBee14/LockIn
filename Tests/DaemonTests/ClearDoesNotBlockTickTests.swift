@@ -9,17 +9,19 @@ private final class CountingSlowBlocker: WebsiteBlocker, @unchecked Sendable {
     private var _applies = 0, _clears = 0
     var applyDelay: TimeInterval = 0
     var clearDelay: TimeInterval = 0
+    private var _present = false
     var applies: Int { lock.lock(); defer { lock.unlock() }; return _applies }
     var clears: Int { lock.lock(); defer { lock.unlock() }; return _clears }
     init() { super.init(forceVerified: true) }
     override func apply(domains: [String], allowlist: Bool, expandSubdomains: Bool) -> Bool {
         if applyDelay > 0 { Thread.sleep(forTimeInterval: applyDelay) }
-        lock.lock(); _applies += 1; lock.unlock(); return true
+        lock.lock(); _applies += 1; _present = true; lock.unlock(); return true
     }
     override func blockIntact(domains: [String], allowlist: Bool, expandSubdomains: Bool) -> Bool { true }
-    override func clear() {
+    override func liveBlockPresent() -> Bool { lock.lock(); defer { lock.unlock() }; return _present }
+    override func clear() -> Bool {
         if clearDelay > 0 { Thread.sleep(forTimeInterval: clearDelay) }
-        lock.lock(); _clears += 1; lock.unlock()
+        lock.lock(); _clears += 1; _present = false; lock.unlock(); return true
     }
 }
 
@@ -53,17 +55,27 @@ final class ClearDoesNotBlockTickTests: XCTestCase {
     // the expiry tick must return fast even when teardown is slow, and the clear must still happen exactly once
     func testExpiryTickDoesNotBlockAndClearsOnce() throws {
         let blocker = CountingSlowBlocker(); blocker.clearDelay = 2.0
-        let (c, url, cfg) = try make("expire", blocker: blocker, now: FixedNow(Date(timeIntervalSince1970: 5000)))
+        let now = FixedNow(Date(timeIntervalSince1970: 5000))
+        let (c, url, cfg) = try make("expire", blocker: blocker, now: now)
         defer { try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg) }
-        try expiredSnap(url)
+        // establish a live lock first (sets desired state + marks the engine "present"), THEN expire it
+        let set = BlockSet(id: "ads", name: "Ads", domains: ["x.com"], appBundleIds: [], mode: .blocklist)
+        try ConfigStore(path: cfg).save(ScheduleConfig(rules: [], blockSets: [set]))
+        XCTAssertTrue(c.startQuickLock(blockSetIds: ["ads"], durationSeconds: 60))
+        XCTAssertEqual(blocker.applies, 1, "quick lock applies once")
+
+        now.d = Date(timeIntervalSince1970: 5000 + 120)   // jump past the 60s lock
         XCTAssertLessThan(elapsed { c.applyDecisionIfNeeded() }, 0.5, "expiry tick must not block on slow teardown")
         XCTAssertTrue(c.loadSnapshots().isEmpty, "expired snapshot removed immediately")
 
+        // wait for the off-thread clear to land
+        let deadline = Date().addingTimeInterval(6.0)
+        while blocker.clears < 1 && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+        XCTAssertEqual(blocker.clears, 1, "expiry must trigger exactly one clear")
+
         // subsequent empty ticks must NOT stack up more clears (the bug: one blocking clear per tick)
         for _ in 0..<5 { _ = elapsed { c.applyDecisionIfNeeded() } }
-        let exp = expectation(description: "clear ran");
-        DispatchQueue.global().asyncAfter(deadline: .now() + 3.0) { exp.fulfill() }
-        wait(for: [exp], timeout: 5.0)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         XCTAssertEqual(blocker.clears, 1, "teardown must coalesce to a single clear, not one per tick")
     }
 

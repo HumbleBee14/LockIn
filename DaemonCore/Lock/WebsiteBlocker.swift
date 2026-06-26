@@ -16,8 +16,8 @@ class WebsiteBlocker: @unchecked Sendable {
         engineQueue.async { [self] in _ = apply(domains: domains, allowlist: allowlist, expandSubdomains: expandSubdomains) }
     }
 
-    func clearAsync() {
-        engineQueue.async { [self] in clear() }
+    func clearAsync(completion: (@Sendable (Bool) -> Void)? = nil) {
+        engineQueue.async { [self] in let ok = clear(); completion?(ok) }
     }
 
     func appendAsync(newDomains: [String], expandSubdomains: Bool) {
@@ -120,10 +120,11 @@ class WebsiteBlocker: @unchecked Sendable {
         return Self.hostsBlockApplied(entries: entries)
     }
 
-    func clear() {
+    @discardableResult
+    func clear() -> Bool {
         let manager = BlockManager(asAllowlist: false, allowLocal: true,
                                    includeCommonSubdomains: true, includeLinkedDomains: false)
-        _ = manager?.clearBlock()
+        return manager?.clearBlock() ?? false
     }
 
     func resetToSystemDefault() -> Bool {

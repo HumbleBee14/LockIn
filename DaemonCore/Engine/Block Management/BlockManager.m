@@ -147,19 +147,38 @@ BOOL appendMode = NO;
 	}
 
 	// pf hardening runs off the caller; serialized so overlapping locks can't race /etc/pf.conf and the anchor.
-	// a teardown cancels pq + flips the flag so this drains immediately instead of parking the clear behind 70K DNS.
+	// a teardown cancels pq (its DNS ops bail) + flips the flag, so this drains in seconds instead of parking
+	// the clear behind 70K DNS resolves.
+	[BlockManager setActiveHardeningQueue: pq];
 	dispatch_async([BlockManager pfSerialQueue], ^{
-		if ([BlockManager pfHardeningCancelled]) return;
-		[pq waitUntilAllOperationsAreFinished];
-		if ([BlockManager pfHardeningCancelled]) return;
-		[p startBlock];
+		if (![BlockManager pfHardeningCancelled]) {
+			[pq waitUntilAllOperationsAreFinished];
+			if (![BlockManager pfHardeningCancelled]) [p startBlock];
+		}
+		[BlockManager setActiveHardeningQueue: nil];
 		[SCHelperToolUtilities clearOSDNSCache];
 	});
 }
 
-// process-wide cancel signal for in-flight blocklist hardening, read by the async block above
+// process-wide cancel signal + handle to the in-flight hardening queue, so a teardown can drain it fast
 static atomic_bool gPFHardeningCancelled = false;
+static NSOperationQueue* gActiveHardeningQueue = nil;
++ (NSLock*)hardeningLock {
+	static NSLock* lock; static dispatch_once_t once;
+	dispatch_once(&once, ^{ lock = [[NSLock alloc] init]; });
+	return lock;
+}
 + (BOOL)pfHardeningCancelled { return atomic_load(&gPFHardeningCancelled); }
++ (void)setActiveHardeningQueue:(NSOperationQueue*)q {
+	NSLock* lock = [BlockManager hardeningLock];
+	[lock lock]; gActiveHardeningQueue = q; [lock unlock];
+}
+// cancel queued DNS ops so waitUntilAllOperationsAreFinished returns without resolving the rest
++ (void)cancelInFlightHardening {
+	atomic_store(&gPFHardeningCancelled, true);
+	NSLock* lock = [BlockManager hardeningLock];
+	[lock lock]; [gActiveHardeningQueue cancelAllOperations]; [lock unlock];
+}
 + (void)setPFHardeningCancelled:(BOOL)v { atomic_store(&gPFHardeningCancelled, v); }
 
 + (dispatch_queue_t)pfSerialQueue {
@@ -225,6 +244,7 @@ static atomic_bool gPFHardeningCancelled = false;
 
 - (void)enqueuePFRuleForEntry:(SCBlockEntry*)entry {
 	NSBlockOperation* op = [NSBlockOperation blockOperationWithBlock:^{
+		if ([BlockManager pfHardeningCancelled]) return;   // a teardown is draining us — skip the DNS resolve
 		[self addPFRuleForEntry: entry];
 	}];
 	[pfQueue addOperation: op];
@@ -255,66 +275,49 @@ static atomic_bool gPFHardeningCancelled = false;
 }
 
 - (BOOL)resetHostsToDefault {
-	[BlockManager setPFHardeningCancelled: YES];   // let any in-flight hardening bail so this isn't queued behind it
-	__block BOOL hostSuccess = NO;
-	dispatch_sync([BlockManager pfSerialQueue], ^{
-		[pf stopBlock: true];
-		hostSuccess = [hostBlockerSet writeDefaultHostsFile];
-		[SCHelperToolUtilities clearOSDNSCache];
-	});
+	[BlockManager cancelInFlightHardening];   // drain any in-flight hardening so pf teardown isn't queued behind it
+	// hosts overwrite runs HERE, off the pf queue, so recovery can never hang behind pf hardening
+	BOOL hostSuccess = [hostBlockerSet writeDefaultHostsFile];
+	dispatch_sync([BlockManager pfSerialQueue], ^{ [pf stopBlock: true]; });
+	[SCHelperToolUtilities clearOSDNSCache];
 	return hostSuccess;
 }
 
 - (BOOL)clearBlock {
-	[BlockManager setPFHardeningCancelled: YES];   // let any in-flight hardening bail so this isn't queued behind it
-	__block BOOL result = NO;
-	dispatch_sync([BlockManager pfSerialQueue], ^{ result = [self clearBlockLocked]; });
-	return result;
+	[BlockManager cancelInFlightHardening];   // drain any in-flight hardening so pf teardown isn't queued behind it
+	// hosts revert runs HERE, off the pf queue: it's the unblock that matters and must never wait on pf hardening
+	BOOL hostSuccess = [self revertHosts];
+	__block BOOL pfSuccess = NO;
+	dispatch_sync([BlockManager pfSerialQueue], ^{ pfSuccess = [self teardownPF]; });
+	[SCHelperToolUtilities clearOSDNSCache];
+	return hostSuccess && pfSuccess;
 }
 
-- (BOOL)clearBlockLocked {
-	[pf stopBlock: false];
-	BOOL pfSuccess = ![pf containsSelfControlBlock];
-
+// revert /etc/hosts independently of pf — restores the backup if removal didn't take
+- (BOOL)revertHosts {
 	[hostBlockerSet removeSelfControlBlock];
 	BOOL hostSuccess = [hostBlockerSet writeNewFileContents];
-	// Revert the host file blocker's file contents to disk so we can check
-	// whether or not it still contains the block (aka we messed up).
 	[hostBlockerSet revertFileContentsToDisk];
 	hostSuccess = hostSuccess && ![hostBlockerSet containsSelfControlBlock];
-
-	BOOL clearedSuccessfully = hostSuccess && pfSuccess;
-
-	if(clearedSuccessfully)
-		NSLog(@"INFO: Block successfully cleared.");
-	else {
-		if (!pfSuccess) {
-			NSLog(@"WARNING: Error clearing pf block. Tring to clear using force.");
-			[pf stopBlock: true];
-		}
-		if (!hostSuccess) {
-			NSLog(@"WARNING: Error removing hostfile block.  Attempting to restore host file backup.");
-			[hostBlockerSet restoreBackupHostsFile];
-		}
-
-		clearedSuccessfully = ![self blockIsActive];
-
-		if ([hostBlockerSet.defaultBlocker containsSelfControlBlock]) {
-			NSLog(@"ERROR: Host file backup could not be restored.  This may result in a permanent block.");
-		}
-		if ([pf containsSelfControlBlock]) {
-			NSLog(@"ERROR: Firewall rules could not be cleared.  This may result in a permanent block.");
-		}
-		if (clearedSuccessfully) {
-			NSLog(@"INFO: Firewall rules successfully cleared.");
-		}
+	if (!hostSuccess) {
+		NSLog(@"WARNING: Error removing hostfile block. Attempting to restore host file backup.");
+		[hostBlockerSet restoreBackupHostsFile];
+		hostSuccess = ![hostBlockerSet containsSelfControlBlock];
+		if (!hostSuccess) NSLog(@"ERROR: Host file backup could not be restored. This may result in a permanent block.");
 	}
-
 	[hostBlockerSet deleteBackupHostsFile];
+	return hostSuccess;
+}
 
-	[SCHelperToolUtilities clearOSDNSCache];
-
-	return clearedSuccessfully;
+- (BOOL)teardownPF {
+	[pf stopBlock: false];
+	if ([pf containsSelfControlBlock]) {
+		NSLog(@"WARNING: Error clearing pf block. Trying to clear using force.");
+		[pf stopBlock: true];
+	}
+	BOOL pfSuccess = ![pf containsSelfControlBlock];
+	if (!pfSuccess) NSLog(@"ERROR: Firewall rules could not be cleared. This may result in a permanent block.");
+	return pfSuccess;
 }
 
 - (BOOL)forceClearBlock {

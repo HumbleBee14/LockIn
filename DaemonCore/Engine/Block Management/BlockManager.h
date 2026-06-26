@@ -63,5 +63,6 @@
 
 + (BOOL)pfHardeningCancelled;
 + (void)setPFHardeningCancelled:(BOOL)v;
++ (void)cancelInFlightHardening;
 
 @end

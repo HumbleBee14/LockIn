@@ -9,7 +9,7 @@ final class OrphanSelfDestructTests: XCTestCase {
         init() { super.init(forceVerified: true) }
         override func apply(domains: [String], allowlist: Bool, expandSubdomains: Bool) -> Bool { present = true; return true }
         override func liveBlockPresent() -> Bool { present }
-        override func clear() { present = false }
+        override func clear() -> Bool { present = false; return true }
     }
 
     private func make(_ n: String, locked: Bool) throws -> (BlockController, URL, URL) {

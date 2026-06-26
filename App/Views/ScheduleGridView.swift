@@ -1,11 +1,17 @@
 import SwiftUI
 
+// presenting via .sheet(item:) ties the editor's identity to the target, so its @State is built from the right
+// rule on the FIRST open (isPresented + a separate var raced, showing stale/default values until reopened)
+private struct EditorTarget: Identifiable {
+    let id: String
+    let rule: Rule?   // nil = new rule
+}
+
 struct ScheduleGridView: View {
     @ObservedObject var store: ScheduleStore
     @ObservedObject var statusModel: StatusViewModel
     @ObservedObject var gate: InstallGate
-    @State private var editingRule: Rule?
-    @State private var showingEditor = false
+    @State private var editorTarget: EditorTarget?
 
     private let weekdayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
@@ -22,8 +28,8 @@ struct ScheduleGridView: View {
             Spacer()
         }
         .padding(Theme.Spacing.l)
-        .sheet(isPresented: $showingEditor) {
-            RuleEditorView(store: store, gate: gate, existing: editingRule) { showingEditor = false }
+        .sheet(item: $editorTarget) { target in
+            RuleEditorView(store: store, gate: gate, existing: target.rule) { editorTarget = nil }
         }
     }
 
@@ -39,7 +45,7 @@ struct ScheduleGridView: View {
             }
             Spacer()
             Button {
-                editingRule = nil; showingEditor = true
+                editorTarget = EditorTarget(id: "new", rule: nil)
             } label: {
                 Label("Add Rule", systemImage: "plus")
             }
@@ -103,7 +109,7 @@ struct ScheduleGridView: View {
                     }
                     Spacer()
                     Button {
-                        editingRule = rule; showingEditor = true
+                        editorTarget = EditorTarget(id: rule.id, rule: rule)
                     } label: { Image(systemName: "pencil") }
                         .buttonStyle(.borderless)
                         .disabled(statusModel.isActive)
