@@ -9,6 +9,7 @@ public final class BlockController {
     private let blocker: WebsiteBlocker
     private let makeGuard: () -> ClockGuard
     private var guards: [String: ClockGuard] = [:]
+    private var appliedSnapshotIds: Set<String> = []
 
     init(snapshotStore: LockSnapshotStore, configStore: ConfigStore = .shared,
          appBlocker: AppBlocking = AppBlocker(), blocker: WebsiteBlocker = WebsiteBlocker(),
@@ -110,6 +111,7 @@ public final class BlockController {
                                     expandSubdomains: config.settings.expandSubdomains)
         guard applied else { blocker.clear(); return "Block not applied at the system level. Lock aborted." }
         try? snapshotStore.save([snap])
+        appliedSnapshotIds = [snap.id]
         pushAppUnion([snap])
         return nil
     }
@@ -147,8 +149,10 @@ public final class BlockController {
             guards[dropped.id] = nil
         }
         snaps = survivors
-        applyEffective(snaps)
+        let setChanged = appliedSnapshotIds != Set(snaps.map { $0.id })
+        applyEffective(snaps, forceRebuild: setChanged)
         if !servedExpiryOnly { addNewlyDueRules(into: &snaps, calendar: calendar) }
+        appliedSnapshotIds = Set(snaps.map { $0.id })
         if snaps.isEmpty {
             try? snapshotStore.clear()
             blocker.clear()
@@ -158,12 +162,14 @@ public final class BlockController {
         }
     }
 
-    private func applyEffective(_ snaps: [LockSnapshot]) {
+    private func applyEffective(_ snaps: [LockSnapshot], forceRebuild: Bool) {
         guard let first = snaps.first else { return }
         let e = EffectiveBlock.resolve(snaps)
-        // reassert every tick so a tamper or a relaunched agent self-heals within one cycle
-        _ = blocker.apply(domains: e.domains, allowlist: e.isAllowlist,
-                          expandSubdomains: first.appliedSettings.expandSubdomains)
+        // rebuild only when the set changed or a tamper removed the block; never every tick (75K rebuild froze the daemon)
+        if forceRebuild || !blocker.liveBlockPresent() {
+            _ = blocker.apply(domains: e.domains, allowlist: e.isAllowlist,
+                              expandSubdomains: first.appliedSettings.expandSubdomains)
+        }
         pushAppUnion(snaps)
         // invariant: if the active block has apps but the killer stopped, re-arm it — bias toward staying blocked
         let on = first.appliedSettings.appBlockingEnabled
@@ -204,9 +210,9 @@ public final class BlockController {
         configStore.load() ?? ScheduleConfig(rules: [])
     }
 
-    // recovery: rewrite /etc/hosts to the macOS default — refused while a lock is active (would be a bypass)
+    // recovery: keyed off the snapshot only, so an orphaned block (no lock but dirty hosts/pf) can be cleaned
     func resetHostsToDefault() -> Bool {
-        if isLockHeld() { return false }
+        if !snapshotStore.load().isEmpty { return false }
         return blocker.resetToSystemDefault()
     }
 

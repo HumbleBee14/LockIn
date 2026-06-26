@@ -30,8 +30,8 @@ struct SettingsView: View {
                                "Quit blocked apps when they launch during a window.",
                                binding(\.appBlockingEnabled))
                     Divider()
-                    settingRow("Expand www variants",
-                               "Also block the www. version of each site. Off keeps lists smaller so larger blocklists stay responsive.",
+                    settingRow("Expand www / IPv6 variants",
+                               "Also block the www. and IPv6 versions of each site. Off keeps lists smaller so larger blocklists stay responsive.",
                                binding(\.expandSubdomains))
                     Divider()
                     notificationRow

@@ -376,21 +376,39 @@ BOOL appendMode = NO;
     }
     return [NSString stringWithUTF8String:hbuf];
 }
+// hard cap per DNS lookup so a hung resolve can't wedge the queue (75K no-timeout lookups froze the daemon)
+static const CFTimeInterval kDNSResolveTimeout = 2.0;
+
 + (NSArray*)ipAddressesForDomainName:(NSString*)domainName {
     if(domainName == nil) return @[];
 
 	NSDate* startedResolving = [NSDate date];
     CFHostRef cfHost = CFHostCreateWithName(kCFAllocatorDefault, (__bridge CFStringRef)domainName);
     CFStreamError streamErr;
-    // TODO: call CFHostsScheduleWithRunLoop to put this on a background thread, so we can cancel/timeout early
-    CFHostStartInfoResolution(cfHost, kCFHostAddresses, &streamErr);
-    if (streamErr.error) {
+
+    // scheduled form + bounded run loop lets us cap the otherwise-unbounded resolve
+    CFHostScheduleWithRunLoop(cfHost, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+    Boolean started = CFHostStartInfoResolution(cfHost, kCFHostAddresses, &streamErr);
+    if (started) {
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, kDNSResolveTimeout, false);
+    }
+    CFHostUnscheduleFromRunLoop(cfHost, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+    CFHostCancelInfoResolution(cfHost, kCFHostAddresses);
+
+    if (!started || streamErr.error) {
         NSLog(@"BlockManager: Warning: failed to resolve addresses for %@ with stream error", domainName);
         CFRelease(cfHost);
         return @[];
     }
-    
-    NSArray<NSData*>* addresses = (__bridge NSArray*)CFHostGetAddressing(cfHost, NULL);
+
+    Boolean resolved = false;
+    NSArray<NSData*>* addresses = (__bridge NSArray*)CFHostGetAddressing(cfHost, &resolved);
+    if (!resolved) {
+        // timed out before the run loop saw a result — skip pf for this domain (hosts still blocks it)
+        NSLog(@"BlockManager: Warning: DNS resolve timed out for %@ after %.1fs", domainName, kDNSResolveTimeout);
+        CFRelease(cfHost);
+        return @[];
+    }
 
     NSMutableArray* stringAddresses = [NSMutableArray array];
     if (addresses != NULL) {

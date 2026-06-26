@@ -1,6 +1,6 @@
 import Foundation
 
-final class WebsiteBlocker {
+class WebsiteBlocker {
     // forces apply() to report success in tests, which can't write /etc/hosts or enable pf
     private let forceVerified: Bool
 
@@ -37,8 +37,9 @@ final class WebsiteBlocker {
     @discardableResult
     func apply(domains: [String], allowlist: Bool, expandSubdomains: Bool) -> Bool {
         let entries = Self.entries(for: domains, expand: expandSubdomains)
+        // one user switch governs all expansion: the engine's www./site pairing was previously forced on
         let manager = BlockManager(asAllowlist: allowlist, allowLocal: true,
-                                   includeCommonSubdomains: true, includeLinkedDomains: false)
+                                   includeCommonSubdomains: expandSubdomains, includeLinkedDomains: false)
         manager?.prepareToAddBlock()
         manager?.addBlockEntries(from: entries)
         manager?.finalizeBlock()
@@ -70,7 +71,7 @@ final class WebsiteBlocker {
         let entries = Self.entries(for: newDomains, expand: expandSubdomains)
         guard !entries.isEmpty else { return false }
         let manager = BlockManager(asAllowlist: false, allowLocal: true,
-                                   includeCommonSubdomains: true, includeLinkedDomains: false)
+                                   includeCommonSubdomains: expandSubdomains, includeLinkedDomains: false)
         manager?.enterAppendMode()
         manager?.addBlockEntries(from: entries)
         manager?.finishAppending()
