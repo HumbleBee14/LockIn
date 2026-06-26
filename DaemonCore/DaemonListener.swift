@@ -91,7 +91,11 @@ final class DaemonXPC: NSObject, LockInDaemonProtocol {
     }
 
     func resetHostsToDefault(reply: @escaping (Bool) -> Void) {
-        onMain(reply, false) { $0.resetHostsToDefault() }
+        let box = ReplyBox(reply: reply)
+        guard let controller else { box(false); return }
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated { controller.resetHostsToDefault { box($0) } }
+        }
     }
 
     func prepareUninstall(reply: @escaping (Bool) -> Void) {

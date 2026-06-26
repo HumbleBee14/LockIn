@@ -193,7 +193,7 @@ struct SettingsView: View {
         Task {
             let ok = await client.resetHostsToDefault()
             resetting = false
-            resetResult = ok ? "Done." : "Couldn't reset (a lock may be active)."
+            resetResult = ok ? "Done." : "Couldn't reset. The helper may not be running."
         }
     }
 

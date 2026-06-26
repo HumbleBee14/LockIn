@@ -1,11 +1,27 @@
 import Foundation
 
-class WebsiteBlocker {
+class WebsiteBlocker: @unchecked Sendable {
     // forces apply() to report success in tests, which can't write /etc/hosts or enable pf
     private let forceVerified: Bool
 
+    // every engine mutation runs here: serial so apply/clear can't interleave, a real thread so the
+    // main actor (timer + XPC) never blocks on a 70K hosts write. this is THE fix for the freeze/wedge.
+    private let engineQueue = DispatchQueue(label: "com.humblebee.lockin.engine", qos: .userInitiated)
+
     init(forceVerified: Bool = false) {
         self.forceVerified = forceVerified
+    }
+
+    func applyAsync(domains: [String], allowlist: Bool, expandSubdomains: Bool) {
+        engineQueue.async { [self] in _ = apply(domains: domains, allowlist: allowlist, expandSubdomains: expandSubdomains) }
+    }
+
+    func clearAsync() {
+        engineQueue.async { [self] in clear() }
+    }
+
+    func appendAsync(newDomains: [String], expandSubdomains: Bool) {
+        engineQueue.async { [self] in _ = appendToActiveBlock(newDomains: newDomains, expandSubdomains: expandSubdomains) }
     }
 
     // www.↔apex pairing for bare two-label domains (youtube.com↔www.youtube.com); multi-label hosts unchanged
@@ -116,6 +132,11 @@ class WebsiteBlocker {
         return manager?.resetHostsToDefault() ?? false
     }
 
+    // off-main reset so the engine's serial queue (not the main thread) absorbs any wait on in-flight hardening
+    func resetToSystemDefaultAsync(completion: @escaping @Sendable (Bool) -> Void) {
+        engineQueue.async { [self] in completion(resetToSystemDefault()) }
+    }
+
     func isApplied() -> Bool {
         PacketFilter.blockFoundInPF()
     }
@@ -146,8 +167,18 @@ class WebsiteBlocker {
         guard let h = contents.range(of: header),
               let f = contents.range(of: footer, range: h.upperBound..<contents.endIndex) else { return false }
         let section = contents[h.upperBound..<f.lowerBound]
-        if section.components(separatedBy: "0.0.0.0").count - 1 < entries.count { return false }
-        let probes = [entries.first, entries[entries.count / 2], entries.last].compactMap { $0 }
+        // only domain entries get a 0.0.0.0 line; IP/port/* are pf-only, so exclude them from count and probes
+        let hostsEntries = entries.filter(isHostsEligible)
+        guard !hostsEntries.isEmpty else { return true }
+        if section.components(separatedBy: "0.0.0.0").count - 1 < hostsEntries.count { return false }
+        let probes = [hostsEntries.first, hostsEntries[hostsEntries.count / 2], hostsEntries.last].compactMap { $0 }
         return probes.allSatisfy { section.contains($0) }
+    }
+
+    // mirrors the engine's hosts-write rule (BlockManager: != "*" && no port && not an IP)
+    static func isHostsEligible(_ entry: String) -> Bool {
+        if entry == "*" || entry.contains(":") || entry.contains("/") { return false }
+        let isIPv4 = entry.split(separator: ".").count == 4 && entry.allSatisfy { $0.isNumber || $0 == "." }
+        return !isIPv4
     }
 }

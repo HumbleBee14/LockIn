@@ -61,4 +61,7 @@
 + (NSArray*)ipAddressesForDomainName:(NSString*)domainName;
 - (BOOL)domainIsGoogle:(NSString*)domainName;
 
++ (BOOL)pfHardeningCancelled;
++ (void)setPFHardeningCancelled:(BOOL)v;
+
 @end

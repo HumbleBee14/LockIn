@@ -25,6 +25,7 @@
 #import "SCBlockEntry.h"
 #include <sys/socket.h>
 #include <netdb.h>
+#include <stdatomic.h>
 #import "HostFileBlockerSet.h"
 #import "SCHelperToolUtilities.h"
 
@@ -118,6 +119,7 @@ BOOL appendMode = NO;
 }
 
 - (void)finalizeBlock {
+	[BlockManager setPFHardeningCancelled: NO];   // a fresh block clears any stale cancel from a prior teardown
 	HostFileBlockerSet* hosts = hostBlockerSet;
 	BOOL writeHosts = hostsBlockingEnabled;
 	NSOperationQueue* pq = pfQueue;
@@ -144,13 +146,21 @@ BOOL appendMode = NO;
 		return;
 	}
 
-	// pf hardening runs off the caller; serialized so overlapping locks can't race /etc/pf.conf and the anchor
+	// pf hardening runs off the caller; serialized so overlapping locks can't race /etc/pf.conf and the anchor.
+	// a teardown cancels pq + flips the flag so this drains immediately instead of parking the clear behind 70K DNS.
 	dispatch_async([BlockManager pfSerialQueue], ^{
+		if ([BlockManager pfHardeningCancelled]) return;
 		[pq waitUntilAllOperationsAreFinished];
+		if ([BlockManager pfHardeningCancelled]) return;
 		[p startBlock];
 		[SCHelperToolUtilities clearOSDNSCache];
 	});
 }
+
+// process-wide cancel signal for in-flight blocklist hardening, read by the async block above
+static atomic_bool gPFHardeningCancelled = false;
++ (BOOL)pfHardeningCancelled { return atomic_load(&gPFHardeningCancelled); }
++ (void)setPFHardeningCancelled:(BOOL)v { atomic_store(&gPFHardeningCancelled, v); }
 
 + (dispatch_queue_t)pfSerialQueue {
 	static dispatch_queue_t q;
@@ -245,6 +255,7 @@ BOOL appendMode = NO;
 }
 
 - (BOOL)resetHostsToDefault {
+	[BlockManager setPFHardeningCancelled: YES];   // let any in-flight hardening bail so this isn't queued behind it
 	__block BOOL hostSuccess = NO;
 	dispatch_sync([BlockManager pfSerialQueue], ^{
 		[pf stopBlock: true];
@@ -255,6 +266,7 @@ BOOL appendMode = NO;
 }
 
 - (BOOL)clearBlock {
+	[BlockManager setPFHardeningCancelled: YES];   // let any in-flight hardening bail so this isn't queued behind it
 	__block BOOL result = NO;
 	dispatch_sync([BlockManager pfSerialQueue], ^{ result = [self clearBlockLocked]; });
 	return result;

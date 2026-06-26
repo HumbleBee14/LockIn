@@ -65,6 +65,13 @@ final class WebsiteBlockerTests: XCTestCase {
         let block = ["0.0.0.0\ta.com", "0.0.0.0\tJUNK.com", "0.0.0.0\tc.com"].joined(separator: "\n")
         XCTAssertFalse(WebsiteBlocker.sectionIntact(in: hosts(block), entries: ["a.com", "b.com", "c.com"]))
     }
+    // IP / host:port / "*" entries are pf-only — they get NO 0.0.0.0 line, so they must not be counted/probed,
+    // else a fully-intact hosts section reads as tampered and rebuilds every tick (reintroduces the freeze).
+    func testSectionIntactWhenEntriesIncludePfOnlyKinds() {
+        let block = ["0.0.0.0\ta.com", "0.0.0.0\tb.com"].joined(separator: "\n")
+        let entries = ["a.com", "1.2.3.4", "x.com:8080", "*", "b.com"]
+        XCTAssertTrue(WebsiteBlocker.sectionIntact(in: hosts(block), entries: entries))
+    }
     func testBlockAbsentWhenNoMarkers() {
         let contents = "127.0.0.1\tlocalhost\n"
         XCTAssertFalse(WebsiteBlocker.blockPresent(in: contents, entries: ["youtube.com"]))
