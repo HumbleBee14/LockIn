@@ -24,9 +24,17 @@ final class WebsiteBlockerTests: XCTestCase {
         // "9.x.com" has no letter base before the digit — don't enumerate
         XCTAssertEqual(WebsiteBlocker.expand("9.example.com"), ["9.example.com"])
     }
-    func testExpansionOffIsOneToOne() {
-        let domains = ["reddit.com", "cdn9.x.com", "www.youtube.com"]
-        XCTAssertEqual(WebsiteBlocker.entries(for: domains, expand: false), domains)
+    // www pairing is ALWAYS applied, even with aggressive matching off
+    func testWwwPairAlwaysOnEvenWhenExpandOff() {
+        let e = WebsiteBlocker.entries(for: ["youtube.com"], expand: false)
+        XCTAssertEqual(Set(e), ["youtube.com", "www.youtube.com"])
+    }
+    // aggressive matching OFF must NOT do the heavy CDN enumeration
+    func testCdnEnumerationGatedByExpandFlag() {
+        let off = WebsiteBlocker.entries(for: ["cdn9.x.com"], expand: false)
+        XCTAssertEqual(off, ["cdn9.x.com"], "off: no CDN enumeration")
+        let on = WebsiteBlocker.entries(for: ["cdn9.x.com"], expand: true)
+        XCTAssertTrue(on.contains("cdn1.x.com") && on.contains("cdn10.x.com"), "on: CDN enumeration")
     }
     func testHostsEntriesCeilingCaps() {
         let domains = (0..<(BlockLimits.maxHostsEntries + 5000)).map { "s\($0).com" }

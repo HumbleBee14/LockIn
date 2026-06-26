@@ -29,6 +29,7 @@
 
 @interface BlockManager : NSObject {
 	NSOperationQueue* opQueue;
+	NSOperationQueue* pfQueue;
 	PacketFilter* pf;
 	HostFileBlockerSet* hostBlockerSet;
 	BOOL hostsBlockingEnabled;
@@ -57,7 +58,6 @@
 - (BOOL)resetHostsToDefault;
 - (BOOL)blockIsActive;
 
-- (NSArray*)commonSubdomainsForHostName:(NSString*)hostName;
 + (NSArray*)ipAddressesForDomainName:(NSString*)domainName;
 - (BOOL)domainIsGoogle:(NSString*)domainName;
 
