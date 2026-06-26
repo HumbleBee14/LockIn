@@ -2,7 +2,7 @@ import XCTest
 @testable import LockInDaemonCore
 
 // spy: counts full apply() rebuilds and lets the test control whether the block "looks live"
-private final class SpyBlocker: WebsiteBlocker {
+private final class SpyBlocker: WebsiteBlocker, @unchecked Sendable {
     var applyCount = 0
     var present = false
     init() { super.init(forceVerified: true) }
@@ -11,7 +11,13 @@ private final class SpyBlocker: WebsiteBlocker {
         present = true
         return true
     }
+    // run engine ops synchronously in tests so counts are deterministic right after a tick
+    override func applyAsync(domains: [String], allowlist: Bool, expandSubdomains: Bool) {
+        _ = apply(domains: domains, allowlist: allowlist, expandSubdomains: expandSubdomains)
+    }
+    override func clearAsync() { clear() }
     override func liveBlockPresent() -> Bool { present }
+    override func blockIntact(domains: [String], allowlist: Bool, expandSubdomains: Bool) -> Bool { present }
     override func clear() { present = false }
 }
 

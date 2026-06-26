@@ -1,5 +1,11 @@
 import Foundation
 
+// what the engine should currently be enforcing — compared tick-to-tick so we re-apply only on real change
+enum EngineDesire: Equatable {
+    case clear
+    case block(domains: Set<String>, allowlist: Bool, expand: Bool)
+}
+
 // invariant: main-actor isolated so the timer loop and XPC handlers can't race on lock state
 @MainActor
 public final class BlockController {
@@ -98,9 +104,11 @@ public final class BlockController {
         }
         let snap = freshSnapshot(id: "quick", mode: .adHoc, endsAt: now().addingTimeInterval(durationSeconds),
                                  r: r, settings: config.settings)
+        // synchronous here: the user is waiting on this XPC reply for success/failure (not the timer thread)
         let applied = blocker.apply(domains: r.domains, allowlist: r.isAllowlist,
                                     expandSubdomains: config.settings.expandSubdomains)
-        guard applied else { blocker.clear(); return "Block not applied at the system level. Lock aborted." }
+        guard applied else { blocker.clearAsync(); return "Block not applied at the system level. Lock aborted." }
+        desiredEngine = .block(domains: Set(r.domains), allowlist: r.isAllowlist, expand: config.settings.expandSubdomains)
         try? snapshotStore.save([snap])
         appliedSnapshotIds = [snap.id]
         pushAppUnion([snap])
@@ -121,54 +129,68 @@ public final class BlockController {
                                           expandSubdomains: snaps[i].appliedSettings.expandSubdomains) else { return false }
         snaps[i].appliedDomains.append(contentsOf: fresh)
         try? snapshotStore.save(snaps)
+        // keep desired state in step with the larger set so the next tick doesn't trigger a full rebuild
+        let e = EffectiveBlock.resolve(snaps)
+        desiredEngine = .block(domains: Set(e.domains), allowlist: e.isAllowlist,
+                               expand: snaps[i].appliedSettings.expandSubdomains)
         return true
     }
 
-    // the reconcile tick: drop expired (now >= endsAt), apply the effective union, then add newly-due rules
+    // the reconcile tick: drop expired (now >= endsAt), add newly-due rules, persist, then hand the engine the union
     func reconcile(calendar: Calendar = .current) {
         let nowUTC = now()
         var snaps = snapshotStore.load().filter { nowUTC < $0.endsAt }
-        let setChanged = appliedSnapshotIds != Set(snaps.map { $0.id })
-        applyEffective(snaps, forceRebuild: setChanged)
         addNewlyDueRules(into: &snaps, calendar: calendar, nowUTC: nowUTC)
         appliedSnapshotIds = Set(snaps.map { $0.id })
         if snaps.isEmpty {
             try? snapshotStore.clear()
-            blocker.clear()
             pushClearedSnapshot()
         } else {
             try? snapshotStore.save(snaps)
         }
+        syncEngineToDesiredState(snaps)
     }
 
-    private func applyEffective(_ snaps: [LockSnapshot], forceRebuild: Bool) {
-        guard let first = snaps.first else { return }
+    // invariant: the tick only declares the desired block; the engine applies it on its own serial thread.
+    // the main thread never runs apply/clear, so a 70K write can't freeze the timer or XPC (the freeze bug).
+    private var desiredEngine: EngineDesire = .clear
+
+    private func syncEngineToDesiredState(_ snaps: [LockSnapshot]) {
+        guard let first = snaps.first else {
+            // clear on transition OR whenever a live block lingers (e.g. daemon restarted on a stale hosts block)
+            if desiredEngine != .clear || blocker.liveBlockPresent() {
+                desiredEngine = .clear
+                blocker.clearAsync()
+            }
+            return
+        }
         let e = EffectiveBlock.resolve(snaps)
-        // rebuild only when the set changed or a tamper removed the block; never every tick (75K rebuild froze the daemon)
-        if forceRebuild || !blocker.liveBlockPresent() {
-            _ = blocker.apply(domains: e.domains, allowlist: e.isAllowlist,
-                              expandSubdomains: first.appliedSettings.expandSubdomains)
+        let want = EngineDesire.block(domains: Set(e.domains), allowlist: e.isAllowlist,
+                                      expand: first.appliedSettings.expandSubdomains)
+        // re-apply only when the desired set actually changed, OR the live block drifted (tamper self-heal)
+        let drifted = !blocker.blockIntact(domains: e.domains, allowlist: e.isAllowlist,
+                                           expandSubdomains: first.appliedSettings.expandSubdomains)
+        if want != desiredEngine || drifted {
+            desiredEngine = want
+            blocker.applyAsync(domains: e.domains, allowlist: e.isAllowlist,
+                               expandSubdomains: first.appliedSettings.expandSubdomains)
         }
         pushAppUnion(snaps)
-        // invariant: if the active block has apps but the killer stopped, re-arm it — bias toward staying blocked
         if !e.apps.isEmpty && !appBlocker.isMonitoring() {
             appBlocker.update(active: true, bundleIds: e.apps)
         }
     }
 
     private func addNewlyDueRules(into snaps: inout [LockSnapshot], calendar: Calendar, nowUTC: Date) {
-        // invariant: config is read ONLY to detect a NEW rule starting; never to mutate a live snapshot
+        // invariant: config is read ONLY to detect a NEW rule starting; never to mutate a live snapshot.
+        // no engine call here — syncEngineToDesiredState applies the union once, off-thread.
         let config = loadConfig()
         for rule in config.rules {
             guard !snaps.contains(where: { $0.id == rule.id }) else { continue }
             guard let end = Scheduler.activeWindowEndPublic(rule, at: nowUTC, calendar: calendar) else { continue }
             guard let r = resolveSets(rule.blockSetIds, in: config) else { continue }
             guard r.domains.count <= BlockLimits.maxActiveDomains else { continue }
-            let snap = freshSnapshot(id: rule.id, mode: .scheduled, endsAt: end, r: r, settings: config.settings)
-            _ = blocker.apply(domains: EffectiveBlock.resolve(snaps + [snap]).domains,
-                              allowlist: EffectiveBlock.resolve(snaps + [snap]).isAllowlist,
-                              expandSubdomains: config.settings.expandSubdomains)
-            snaps.append(snap)
+            snaps.append(freshSnapshot(id: rule.id, mode: .scheduled, endsAt: end, r: r, settings: config.settings))
         }
     }
 
@@ -183,10 +205,12 @@ public final class BlockController {
         configStore.load() ?? ScheduleConfig(rules: [])
     }
 
-    // recovery: keyed off the snapshot only, so an orphaned block (no lock but dirty hosts/pf) can be cleaned
-    func resetHostsToDefault() -> Bool {
-        if !snapshotStore.load().isEmpty { return false }
-        return blocker.resetToSystemDefault()
+    // recovery: always overwrites /etc/hosts with the macOS default. unconditional by design — it's the escape
+    // hatch when state is wrong. runs off-main on the engine queue so an in-flight 70K apply can't wedge it.
+    func resetHostsToDefault(completion: @escaping @Sendable (Bool) -> Void) {
+        desiredEngine = .clear
+        try? snapshotStore.clear()
+        blocker.resetToSystemDefaultAsync(completion: completion)
     }
 
     // root-side cleanup for uninstall: reset hosts, clear snapshots + root config. Refused while locked.

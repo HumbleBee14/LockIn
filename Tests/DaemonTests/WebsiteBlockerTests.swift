@@ -50,6 +50,28 @@ final class WebsiteBlockerTests: XCTestCase {
         let contents = hosts("0.0.0.0\tyoutube.com")
         XCTAssertTrue(WebsiteBlocker.blockPresent(in: contents, entries: ["youtube.com"]))
     }
+
+    // partial-tamper integrity: a full block is intact; deleting most or a sampled entry is not
+    func testSectionIntactWhenAllPresent() {
+        let block = ["a.com", "b.com", "c.com", "d.com"].map { "0.0.0.0\t\($0)" }.joined(separator: "\n")
+        XCTAssertTrue(WebsiteBlocker.sectionIntact(in: hosts(block), entries: ["a.com", "b.com", "c.com", "d.com"]))
+    }
+    func testSectionNotIntactAfterBulkDeletion() {
+        let block = "0.0.0.0\ta.com"   // 3 of 4 lines deleted
+        XCTAssertFalse(WebsiteBlocker.sectionIntact(in: hosts(block), entries: ["a.com", "b.com", "c.com", "d.com"]))
+    }
+    func testSectionNotIntactWhenProbedEntryMissing() {
+        // same line count via a junk line, but a sampled (middle) entry was swapped out
+        let block = ["0.0.0.0\ta.com", "0.0.0.0\tJUNK.com", "0.0.0.0\tc.com"].joined(separator: "\n")
+        XCTAssertFalse(WebsiteBlocker.sectionIntact(in: hosts(block), entries: ["a.com", "b.com", "c.com"]))
+    }
+    // IP / host:port / "*" entries are pf-only — they get NO 0.0.0.0 line, so they must not be counted/probed,
+    // else a fully-intact hosts section reads as tampered and rebuilds every tick (reintroduces the freeze).
+    func testSectionIntactWhenEntriesIncludePfOnlyKinds() {
+        let block = ["0.0.0.0\ta.com", "0.0.0.0\tb.com"].joined(separator: "\n")
+        let entries = ["a.com", "1.2.3.4", "x.com:8080", "*", "b.com"]
+        XCTAssertTrue(WebsiteBlocker.sectionIntact(in: hosts(block), entries: entries))
+    }
     func testBlockAbsentWhenNoMarkers() {
         let contents = "127.0.0.1\tlocalhost\n"
         XCTAssertFalse(WebsiteBlocker.blockPresent(in: contents, entries: ["youtube.com"]))
