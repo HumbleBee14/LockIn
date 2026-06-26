@@ -11,10 +11,11 @@ public struct DaemonStatus: Codable, Equatable, Sendable {
     public let appliedAppBundleIds: [String]
     public let nextTriggerDescription: String?
     public let pfApplied: Bool          // firewall layer live too (hosts is proven by the lock existing)
+    public let cleanupFailed: Bool      // a teardown couldn't fully clear hosts/pf — prompt the user to Reset
 
     public init(active: Bool, source: String?, blockSetId: String? = nil, blockSetTitle: String?, isAllowlist: Bool,
                 endsAt: Date?, appliedDomains: [String], appliedAppBundleIds: [String] = [],
-                nextTriggerDescription: String?, pfApplied: Bool = false) {
+                nextTriggerDescription: String?, pfApplied: Bool = false, cleanupFailed: Bool = false) {
         self.active = active
         self.source = source
         self.blockSetId = blockSetId
@@ -25,5 +26,6 @@ public struct DaemonStatus: Codable, Equatable, Sendable {
         self.appliedAppBundleIds = appliedAppBundleIds
         self.nextTriggerDescription = nextTriggerDescription
         self.pfApplied = pfApplied
+        self.cleanupFailed = cleanupFailed
     }
 }

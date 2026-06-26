@@ -15,10 +15,10 @@ private final class SpyBlocker: WebsiteBlocker, @unchecked Sendable {
     override func applyAsync(domains: [String], allowlist: Bool, expandSubdomains: Bool) {
         _ = apply(domains: domains, allowlist: allowlist, expandSubdomains: expandSubdomains)
     }
-    override func clearAsync() { clear() }
+    override func clearAsync(completion: (@Sendable (Bool) -> Void)? = nil) { completion?(clear()) }
     override func liveBlockPresent() -> Bool { present }
     override func blockIntact(domains: [String], allowlist: Bool, expandSubdomains: Bool) -> Bool { present }
-    override func clear() { present = false }
+    override func clear() -> Bool { present = false; return true }
 }
 
 @MainActor

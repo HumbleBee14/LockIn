@@ -7,6 +7,9 @@ struct SettingsView: View {
     @State private var resetting = false
     @State private var showResetConfirm = false
     @State private var resetResult: String?
+    @State private var resetFailed = false
+    @State private var resetNoHelper = false
+    @State private var copiedCommands = false
     @State private var uninstalling = false
     @State private var showUninstallConfirm = false
     @State private var uninstallResult: String?
@@ -140,6 +143,21 @@ struct SettingsView: View {
                     Text(resetResult).font(.system(size: 11)).foregroundStyle(Theme.mistDim)
                 }
             }
+            if resetNoHelper || resetFailed {
+                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                    Text(resetNoHelper
+                         ? "The LockIn helper isn’t running. Open LockIn (or reinstall) and try again, or copy the reset commands and run them in Terminal."
+                         : "Due to an error we couldn’t reset automatically. Copy the reset commands and run them in Terminal.")
+                        .font(.system(size: 11)).foregroundStyle(Theme.amber)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button(copiedCommands ? "Copied — paste in Terminal" : "Copy reset commands") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(Self.manualResetCommands, forType: .string)
+                        copiedCommands = true
+                    }
+                    .buttonStyle(.bordered).tint(Theme.ember)
+                }
+            }
 
             Divider().padding(.vertical, Theme.Spacing.xs)
 
@@ -188,12 +206,46 @@ struct SettingsView: View {
         }
     }
 
+    // overwrite /etc/hosts with the macOS default (works even if the file is corrupted), then tear down pf + flush DNS
+    static let manualResetCommands = """
+    sudo tee /etc/hosts >/dev/null <<'EOF'
+    ##
+    # Host Database
+    #
+    # localhost is used to configure the loopback interface
+    # when the system is booting.  Do not change this entry.
+    ##
+    127.0.0.1\tlocalhost
+    255.255.255.255\tbroadcasthost
+    ::1             localhost
+    fe80::1%lo0\tlocalhost
+    EOF
+    sudo pfctl -d
+    sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder
+    """
+
     private func reset() {
-        resetting = true; resetResult = nil
+        resetting = true; resetResult = nil; resetFailed = false; resetNoHelper = false; copiedCommands = false
         Task {
-            let ok = await client.resetHostsToDefault()
+            // 10s cap: the reset can't hang the UI — a stuck helper falls back to manual commands
+            let result = await withTimeout(seconds: 10) { await client.resetHostsToDefault() } ?? .failed
             resetting = false
-            resetResult = ok ? "Done." : "Couldn't reset. The helper may not be running."
+            switch result {
+            case .done: resetResult = "Done."
+            case .noHelper: resetNoHelper = true       // not running ⇒ different guidance, not "an error"
+            case .failed: resetFailed = true
+            }
+        }
+    }
+
+    // returns nil on timeout
+    private func withTimeout<T: Sendable>(seconds: Double, _ work: @escaping @Sendable () async -> T) async -> T? {
+        await withTaskGroup(of: T?.self) { group in
+            group.addTask { await work() }
+            group.addTask { try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)); return nil }
+            let result = await group.next() ?? nil
+            group.cancelAll()
+            return result
         }
     }
 

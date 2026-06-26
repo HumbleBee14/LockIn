@@ -155,12 +155,17 @@ public final class BlockController {
     // the main thread never runs apply/clear, so a 70K write can't freeze the timer or XPC (the freeze bug).
     private var desiredEngine: EngineDesire = .clear
 
+    // set when a teardown can't fully clear hosts/pf; surfaced in status so the app can prompt a manual Reset
+    private var cleanupFailed = false
+
     private func syncEngineToDesiredState(_ snaps: [LockSnapshot]) {
         guard let first = snaps.first else {
             // clear on transition OR whenever a live block lingers (e.g. daemon restarted on a stale hosts block)
             if desiredEngine != .clear || blocker.liveBlockPresent() {
                 desiredEngine = .clear
-                blocker.clearAsync()
+                blocker.clearAsync { [weak self] ok in
+                    Task { @MainActor in self?.cleanupFailed = !ok }
+                }
             }
             return
         }
@@ -210,7 +215,10 @@ public final class BlockController {
     func resetHostsToDefault(completion: @escaping @Sendable (Bool) -> Void) {
         desiredEngine = .clear
         try? snapshotStore.clear()
-        blocker.resetToSystemDefaultAsync(completion: completion)
+        blocker.resetToSystemDefaultAsync { [weak self] ok in
+            Task { @MainActor in if ok { self?.cleanupFailed = false } }
+            completion(ok)
+        }
     }
 
     // root-side cleanup for uninstall: reset hosts, clear snapshots + root config. Refused while locked.
@@ -236,8 +244,11 @@ public final class BlockController {
     public func statusDTO(calendar: Calendar = .current) -> DaemonStatus {
         let snaps = snapshotStore.load()
         guard !snaps.isEmpty else {
+            // unlocked but a block still lingers ⇒ teardown didn't fully clear; tell the app to prompt a Reset
+            let dirty = cleanupFailed || blocker.liveBlockPresent()
             return DaemonStatus(active: false, source: nil, blockSetTitle: nil, isAllowlist: false,
-                endsAt: nil, appliedDomains: [], nextTriggerDescription: nextTriggerDescription(calendar: calendar))
+                endsAt: nil, appliedDomains: [], nextTriggerDescription: nextTriggerDescription(calendar: calendar),
+                cleanupFailed: dirty)
         }
         let e = EffectiveBlock.resolve(snaps)
         let anyScheduled = snaps.contains { $0.mode == .scheduled }

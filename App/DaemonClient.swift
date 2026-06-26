@@ -85,12 +85,14 @@ final class DaemonClient: Sendable {
         }
     }
 
-    func resetHostsToDefault() async -> Bool {
+    enum ResetResult { case done, failed, noHelper }
+
+    func resetHostsToDefault() async -> ResetResult {
         await withCheckedContinuation { cont in
             let c = connection()
-            let proxy = c.remoteObjectProxyWithErrorHandler { _ in cont.resume(returning: false) }
+            let proxy = c.remoteObjectProxyWithErrorHandler { _ in cont.resume(returning: .noHelper) }
                 as? LockInDaemonProtocol
-            proxy?.resetHostsToDefault { ok in cont.resume(returning: ok) }
+            proxy?.resetHostsToDefault { ok in cont.resume(returning: ok ? .done : .failed) }
         }
     }
 
