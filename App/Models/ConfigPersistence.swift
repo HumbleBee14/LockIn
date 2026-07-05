@@ -2,6 +2,11 @@ import Foundation
 
 enum ConfigPersistence {
     static var fileURL: URL {
+        // invariant: a test process must NEVER touch the real user config — ScheduleStore.persist()
+        // runs on every mutation, and a suite run once wiped a user's block sets through this path
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+            return FileManager.default.temporaryDirectory.appendingPathComponent("LockIn-tests/config.json")
+        }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return base.appendingPathComponent("LockIn/config.json")
     }
