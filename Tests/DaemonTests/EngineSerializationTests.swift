@@ -25,11 +25,22 @@ final class EngineSerializationTests: XCTestCase {
         let b = RecordingBlocker(forceVerified: true)
         b.applyDelay = 0.2
         b.applyAsync(domains: ["a.com"], allowlist: false, expandSubdomains: false)
-        b.applyDelay = 0
+        // Do NOT reset applyDelay here — the queued async apply must still be
+        // in flight (sleeping) when applyAndWait is called below. Resetting
+        // it before the async block reads it races the delay away and no
+        // longer proves that applyAndWait blocks on an in-flight slow apply.
+        let start = Date()
         let ok = b.applyAndWait(domains: ["a.com", "b.com"], allowlist: false, expandSubdomains: false)
+        let elapsed = Date().timeIntervalSince(start)
         XCTAssertTrue(ok)
         XCTAssertEqual(b.events, ["apply:a.com", "apply:a.com,b.com"],
                        "sync apply must not interleave with or precede the queued async apply")
+        // applyAndWait must have waited out the in-flight async apply (0.2s)
+        // plus run its own apply (0.2s, since applyDelay is still 0.2).
+        // 0.35 leaves slack for scheduler jitter while still failing if
+        // applyAndWait didn't genuinely wait on the in-flight apply.
+        XCTAssertGreaterThanOrEqual(elapsed, 0.35,
+                       "applyAndWait must block for the full duration of the in-flight apply plus its own apply")
     }
 
     func testApplyAsyncCompletionReportsResult() {
