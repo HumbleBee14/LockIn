@@ -6,7 +6,8 @@ struct ActiveLockView: View {
 
     @State private var now = Date()
     @State private var newDomain = ""
-    @State private var showingCapAlert = false
+    @State private var showingStackSheet = false
+    @State private var appendFailReason: String?
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -25,6 +26,20 @@ struct ActiveLockView: View {
                     .font(.system(size: 12)).foregroundStyle(Theme.mistDim)
             }
 
+            if let locks = model.status?.locks, locks.count > 1 {
+                lockList(locks)
+            }
+
+            if model.canStackLock {
+                Button {
+                    showingStackSheet = true
+                } label: {
+                    Label("New Lock", systemImage: "plus")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .tint(Theme.ember)
+            }
+
             if model.canAddDomains {
                 addDomainField
             }
@@ -35,11 +50,13 @@ struct ActiveLockView: View {
         .padding(Theme.Spacing.xl)
         .background(Theme.inkBase)
         .onReceive(tick) { now = $0 }
-        .alert("List is full", isPresented: $showingCapAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("This block already holds the maximum of \(BlockLimits.maxActiveDomains) sites.")
+        .sheet(isPresented: $showingStackSheet) {
+            StackLockSheet(store: store, statusModel: model)
         }
+        .alert("Couldn’t add the site", isPresented: Binding(
+            get: { appendFailReason != nil }, set: { if !$0 { appendFailReason = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: { Text(appendFailReason ?? "") }
     }
 
     // both layers live = solid green; hosts-only (pf not confirmed) = amber. internal signal, no label.
@@ -87,11 +104,31 @@ struct ActiveLockView: View {
     private func add() {
         let parsed = ScheduleStore.parseDomainList(newDomain)
         guard !parsed.isEmpty else { return }
-        if (model.status?.appliedDomains.count ?? 0) >= BlockLimits.maxActiveDomains {
-            showingCapAlert = true; newDomain = ""; return
-        }
         newDomain = ""
-        Task { _ = await model.addDomains(parsed, persistingTo: store) }
+        Task {
+            if let reason = await model.addDomains(parsed, persistingTo: store) {
+                appendFailReason = reason
+            }
+        }
+    }
+
+    private func lockList(_ locks: [ActiveLockInfo]) -> some View {
+        VStack(spacing: Theme.Spacing.xs) {
+            ForEach(locks.sorted { $0.endsAt < $1.endsAt }, id: \.id) { lock in
+                HStack(spacing: Theme.Spacing.s) {
+                    Image(systemName: lock.source == "quick" ? "bolt.shield" : "calendar")
+                        .font(.system(size: 11)).foregroundStyle(Theme.mistDim)
+                    Text(lock.title).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.mist)
+                    Spacer()
+                    Text("ends \(model.endTimeString(lock.endsAt))")
+                        .font(Theme.monoFont(11, .regular)).foregroundStyle(Theme.mistDim)
+                }
+                .padding(.vertical, 6).padding(.horizontal, Theme.Spacing.s)
+                .background(Theme.inkRaised)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+        }
+        .frame(maxWidth: 420)
     }
 }
 
