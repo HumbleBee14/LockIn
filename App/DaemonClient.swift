@@ -76,15 +76,6 @@ final class DaemonClient: Sendable {
         }
     }
 
-    func appendDomains(_ domains: [String]) async -> Bool {
-        await withCheckedContinuation { cont in
-            let c = connection()
-            let proxy = c.remoteObjectProxyWithErrorHandler { _ in cont.resume(returning: false) }
-                as? LockInDaemonProtocol
-            proxy?.appendDomainsToActiveBlock(domains) { ok in cont.resume(returning: ok) }
-        }
-    }
-
     // nil on success; otherwise a short failure reason to show the user
     func appendDomainsReason(_ domains: [String]) async -> String? {
         await withCheckedContinuation { cont in
