@@ -149,25 +149,50 @@ public final class BlockController {
             : .unknown
     }
 
-    // append-only, blocklist-only edit to the matching active snapshot (the one change allowed mid-lock)
-    func appendDomainsToActiveBlock(_ domains: [String]) -> Bool {
+    // append-only, blocklist-only (the one change allowed mid-lock). nil = success, else surfaced reason.
+    func appendDomainsToActiveBlockReason(_ domains: [String]) -> String? {
         var snaps = snapshotStore.load()
-        guard let i = snaps.firstIndex(where: { !$0.isAllowlist }) else { return false }
+        // target = the blocklist snapshot that lives longest, so an added site stays blocked to the very end
+        guard let i = snaps.indices.filter({ !snaps[$0].isAllowlist })
+                .max(by: { snaps[$0].endsAt < snaps[$1].endsAt }) else {
+            return "No blocklist lock is active."
+        }
         let existing = Set(snaps[i].appliedDomains)
         // invariant: same control-char/marker rejection as resolveSets — never write a raw XPC string to /etc/hosts
         let fresh = domains.filter { Self.isSafeDomain($0) && !existing.contains($0) }
-        guard !fresh.isEmpty else { return true }
-        guard snaps[i].appliedDomains.count + fresh.count <= BlockLimits.maxActiveDomains else { return false }
-        // invariant: only record the domains in the snapshot once hosts actually carries them
-        guard blocker.appendToActiveBlock(newDomains: fresh,
-                                          expandSubdomains: snaps[i].appliedSettings.expandSubdomains) else { return false }
-        snaps[i].appliedDomains.append(contentsOf: fresh)
-        try? snapshotStore.save(snaps)
-        // keep desired state in step with the larger set so the next tick doesn't trigger a full rebuild
-        let e = EffectiveBlock.resolve(snaps)
-        desiredEngine = .block(domains: Set(e.domains), allowlist: e.isAllowlist,
-                               expand: snaps[i].appliedSettings.expandSubdomains)
-        return true
+        guard !fresh.isEmpty else { return nil }   // filtered/no-op success, never a raw write
+        guard snaps[i].appliedDomains.count + fresh.count <= BlockLimits.maxActiveDomains else {
+            return "This lock already holds the maximum of \(BlockLimits.maxActiveDomains) sites."
+        }
+        guard Set(snaps.flatMap(\.appliedDomains) + fresh).count <= BlockLimits.maxActiveDomains else {
+            return "This would exceed the maximum of \(BlockLimits.maxActiveDomains) blocked sites."
+        }
+        var mutated = snaps
+        mutated[i].appliedDomains.append(contentsOf: fresh)
+        let expand = EffectiveBlock.effectiveExpand(mutated)
+        if mutated.contains(where: { $0.isAllowlist }) {
+            // mixed mode: BlockManager's append no-ops for allowlists — re-apply the full effective
+            // union (D2 subtracts the new domain's expansion), so the site is unreachable immediately
+            let e = EffectiveBlock.resolve(mutated)
+            guard blocker.applyAndWait(domains: e.domains, allowlist: true, expandSubdomains: expand) else {
+                restorePreviousUnion(snaps)
+                return "Block not applied at the system level."
+            }
+            desiredEngine = .block(domains: Set(e.domains), allowlist: true, expand: expand)
+        } else {
+            // invariant: only record the domains in the snapshot once hosts actually carries them
+            guard blocker.appendAndWait(newDomains: fresh, expandSubdomains: expand) else {
+                return "Block not applied at the system level."
+            }
+            let e = EffectiveBlock.resolve(mutated)
+            desiredEngine = .block(domains: Set(e.domains), allowlist: false, expand: expand)
+        }
+        try? snapshotStore.save(mutated)
+        return nil
+    }
+
+    func appendDomainsToActiveBlock(_ domains: [String]) -> Bool {
+        appendDomainsToActiveBlockReason(domains) == nil
     }
 
     // the reconcile tick: drop expired (now >= endsAt), add newly-due rules, persist, then hand the engine the union
@@ -259,9 +284,13 @@ public final class BlockController {
         configStore.load() ?? ScheduleConfig(rules: [])
     }
 
-    // recovery: always overwrites /etc/hosts with the macOS default. unconditional by design — it's the escape
-    // hatch when state is wrong. runs off-main on the engine queue so an in-flight 70K apply can't wedge it.
+    // recovery: overwrites /etc/hosts with the macOS default. it's the escape hatch when state is wrong —
+    // but it is not a disguised unlock (D6): refuse while any un-expired lock exists, mutating nothing.
+    // runs off-main on the engine queue so an in-flight 70K apply can't wedge it.
     func resetHostsToDefault(completion: @escaping @Sendable (Bool) -> Void) {
+        // invariant (D6): reset is recovery, not an unlock — refuse while any un-expired lock exists.
+        // post-expiry dirty hosts (empty/expired store, live block) stays allowed: that's the recovery case.
+        if snapshotStore.load().contains(where: { now() < $0.endsAt }) { completion(false); return }
         desiredEngine = .clear
         try? snapshotStore.clear()
         blocker.resetToSystemDefaultAsync { [weak self] ok in
@@ -302,6 +331,14 @@ public final class BlockController {
         let e = EffectiveBlock.resolve(snaps)
         let anyScheduled = snaps.contains { $0.mode == .scheduled }
         let title = snaps.count == 1 ? snaps[0].blockSetTitle : "\(snaps[0].blockSetTitle) +\(snaps.count - 1)"
+        let sorted = snaps.sorted { $0.endsAt < $1.endsAt }
+        let locks = sorted.map {
+            ActiveLockInfo(id: $0.id, title: $0.blockSetTitle,
+                           source: $0.mode == .scheduled ? "scheduled" : "quick",
+                           endsAt: $0.endsAt, isAllowlist: $0.isAllowlist,
+                           blockSetId: $0.blockSetId, domainCount: $0.appliedDomains.count)
+        }
+        let appendTarget = snaps.filter { !$0.isAllowlist }.max { $0.endsAt < $1.endsAt }?.blockSetId
         return DaemonStatus(
             active: true,
             source: anyScheduled ? "scheduled" : "quick",
@@ -313,6 +350,8 @@ public final class BlockController {
             appliedAppBundleIds: e.apps,
             nextTriggerDescription: nil,
             pfApplied: blocker.isApplied(),
+            locks: locks,
+            appendTargetBlockSetId: appendTarget,
             engineDegraded: engineDegraded)
     }
 

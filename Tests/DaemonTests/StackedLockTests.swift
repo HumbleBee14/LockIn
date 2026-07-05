@@ -83,4 +83,55 @@ final class StackedLockTests: XCTestCase {
         XCTAssertNotNil(c.startQuickLockReason(blockSetIds: ["f"], durationSeconds: 600))
         XCTAssertEqual(c.loadSnapshots().count, 0, "failed first apply saves nothing")
     }
+
+    // T9: append goes to the latest-ending blocklist snapshot and status reports that set id
+    func testAppendTargetsLatestEndingBlocklistLock() throws {
+        let (c, url, cfg) = try controller(ScheduleConfig(rules: [], blockSets: [social, adult]), "appendtarget")
+        defer { cleanup(url, cfg) }
+        XCTAssertNil(c.startQuickLockReason(blockSetIds: ["s"], durationSeconds: 600))     // short, set s
+        XCTAssertNil(c.startQuickLockReason(blockSetIds: ["a"], durationSeconds: 7200))    // long, set a
+        XCTAssertNil(c.appendDomainsToActiveBlockReason(["reddit.com"]))
+        let snaps = c.loadSnapshots()
+        let long = snaps.max { $0.endsAt < $1.endsAt }!
+        XCTAssertTrue(long.appliedDomains.contains("reddit.com"), "append must land on the longest lock")
+        let short = snaps.min { $0.endsAt < $1.endsAt }!
+        XCTAssertFalse(short.appliedDomains.contains("reddit.com"))
+        XCTAssertEqual(c.statusDTO().appendTargetBlockSetId, "a")
+    }
+
+    // T5 (append half): appending past the union cap is refused with a reason
+    func testAppendUnionCapRefusedWithReason() throws {
+        let big = BlockSet(id: "big", name: "Big",
+                           domains: (0..<BlockLimits.maxActiveDomains).map { "d\($0).com" },
+                           appBundleIds: [], mode: .blocklist)
+        let (c, url, cfg) = try controller(ScheduleConfig(rules: [], blockSets: [big]), "appendcap")
+        defer { cleanup(url, cfg) }
+        XCTAssertNil(c.startQuickLockReason(blockSetIds: ["big"], durationSeconds: 600))
+        XCTAssertNotNil(c.appendDomainsToActiveBlockReason(["one-more.com"]),
+                        "append past the cap must return a reason, never silently truncate")
+    }
+
+    // T11: statusDTO carries the per-lock list sorted by end
+    func testStatusCarriesPerLockList() throws {
+        let (c, url, cfg) = try controller(ScheduleConfig(rules: [], blockSets: [social, adult]), "lockslist")
+        defer { cleanup(url, cfg) }
+        XCTAssertNil(c.startQuickLockReason(blockSetIds: ["a"], durationSeconds: 7200))
+        XCTAssertNil(c.startQuickLockReason(blockSetIds: ["s"], durationSeconds: 600))
+        let locks = try XCTUnwrap(c.statusDTO().locks)
+        XCTAssertEqual(locks.count, 2)
+        XCTAssertEqual(locks.map(\.blockSetId), ["s", "a"], "sorted by endsAt ascending")
+        XCTAssertEqual(locks.map(\.source), ["quick", "quick"])
+        XCTAssertEqual(locks[1].domainCount, 2)
+    }
+
+    // T10: reset refused while an un-expired snapshot exists; allowed once none remain
+    func testResetRefusedMidLock() throws {
+        let (c, url, cfg) = try controller(ScheduleConfig(rules: [], blockSets: [social]), "resetgate")
+        defer { cleanup(url, cfg) }
+        XCTAssertNil(c.startQuickLockReason(blockSetIds: ["s"], durationSeconds: 3600))
+        let refused = expectation(description: "refused")
+        c.resetHostsToDefault { ok in XCTAssertFalse(ok); refused.fulfill() }
+        wait(for: [refused], timeout: 2)
+        XCTAssertEqual(c.loadSnapshots().count, 1, "a refused reset must not clear snapshots")
+    }
 }
