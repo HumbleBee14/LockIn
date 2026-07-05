@@ -4,6 +4,7 @@ import Foundation
 enum EngineDesire: Equatable {
     case clear
     case block(domains: Set<String>, allowlist: Bool, expand: Bool)
+    case unknown   // engine state unverified (a write failed) — never equals `want`, so the next tick re-applies
 }
 
 // invariant: main-actor isolated so the timer loop and XPC handlers can't race on lock state
@@ -93,26 +94,59 @@ public final class BlockController {
 
     // nil on success; otherwise a short reason for the failure so the app can show it
     func startQuickLockReason(blockSetIds: [String], durationSeconds: Double) -> String? {
-        // the UI only offers quick lock from the fully-unlocked state, so an existing set means already locked
-        if !snapshotStore.load().isEmpty { return "A lock is already active." }
+        let existing = snapshotStore.load()
         let config = persistedConfig()
+        if existing.count >= BlockLimits.maxActiveLocks {
+            return "Too many locks are active (max \(BlockLimits.maxActiveLocks)). Wait for one to end."
+        }
         if domainCount(blockSetIds, in: config) > BlockLimits.maxActiveDomains {
             return "This block set is too large (over \(BlockLimits.maxActiveDomains) sites). Split it into smaller sets."
         }
         guard let r = resolveSets(blockSetIds, in: config) else {
             return "No valid sites to block (the selected sets are empty or mix allow/block modes)."
         }
-        let snap = freshSnapshot(id: "quick", mode: .adHoc, endsAt: now().addingTimeInterval(durationSeconds),
+        // invariant (Law 3): while anything is locked, a new lock may only shrink reachability
+        if !existing.isEmpty && r.isAllowlist {
+            return "Only blocklist locks can be added while a lock is active."
+        }
+        if Set(existing.flatMap(\.appliedDomains) + r.domains).count > BlockLimits.maxActiveDomains {
+            return "This would exceed the maximum of \(BlockLimits.maxActiveDomains) blocked sites."
+        }
+        let snap = freshSnapshot(id: "quick-" + UUID().uuidString, mode: .adHoc,
+                                 endsAt: now().addingTimeInterval(durationSeconds),
                                  r: r, settings: config.settings)
-        // synchronous here: the user is waiting on this XPC reply for success/failure (not the timer thread)
-        let applied = blocker.apply(domains: r.domains, allowlist: r.isAllowlist,
-                                    expandSubdomains: config.settings.expandSubdomains)
-        guard applied else { blocker.clearAsync(); return "Block not applied at the system level. Lock aborted." }
-        desiredEngine = .block(domains: Set(r.domains), allowlist: r.isAllowlist, expand: config.settings.expandSubdomains)
-        try? snapshotStore.save([snap])
-        appliedSnapshotIds = [snap.id]
-        pushAppUnion([snap])
+        let combined = existing + [snap]
+        let e = EffectiveBlock.resolve(combined)
+        let expand = EffectiveBlock.effectiveExpand(combined)
+        // synchronous to this XPC reply, but ordered on the serial engine queue (never interleaves a tick apply)
+        let applied = blocker.applyAndWait(domains: e.domains, allowlist: e.isAllowlist, expandSubdomains: expand)
+        guard applied else {
+            restorePreviousUnion(existing)
+            return "Block not applied at the system level. Lock aborted."
+        }
+        desiredEngine = .block(domains: Set(e.domains), allowlist: e.isAllowlist, expand: expand)
+        engineDegraded = false
+        try? snapshotStore.save(combined)
+        appliedSnapshotIds = Set(combined.map { $0.id })
+        pushAppUnion(combined)
         return nil
+    }
+
+    // D1b: a failed forward apply may already have stripped the old union from live hosts —
+    // restore it verified; if that also fails, mark degraded and let every tick retry (.unknown)
+    private func restorePreviousUnion(_ existing: [LockSnapshot]) {
+        guard !existing.isEmpty else {
+            desiredEngine = .clear
+            blocker.clearAsync()
+            return
+        }
+        let prev = EffectiveBlock.resolve(existing)
+        let expand = EffectiveBlock.effectiveExpand(existing)
+        let restored = blocker.applyAndWait(domains: prev.domains, allowlist: prev.isAllowlist, expandSubdomains: expand)
+        engineDegraded = !restored
+        desiredEngine = restored
+            ? .block(domains: Set(prev.domains), allowlist: prev.isAllowlist, expand: expand)
+            : .unknown
     }
 
     // append-only, blocklist-only edit to the matching active snapshot (the one change allowed mid-lock)
@@ -157,6 +191,9 @@ public final class BlockController {
 
     // set when a teardown can't fully clear hosts/pf; surfaced in status so the app can prompt a manual Reset
     private var cleanupFailed = false
+
+    // a live-lock engine write keeps failing; direction is over-block, tick retries (spec D7)
+    private(set) var engineDegraded = false
 
     private func syncEngineToDesiredState(_ snaps: [LockSnapshot]) {
         guard let first = snaps.first else {
