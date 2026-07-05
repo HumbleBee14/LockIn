@@ -131,4 +131,38 @@ final class StackedExpiryTests: XCTestCase {
         c.reconcile(); drainEngine(c)
         XCTAssertEqual(b.lastApply()?.expand, false, "survivor never asked for expansion; OR drops to false")
     }
+
+    // D7 regression: a successful append must NOT un-arm a pending retry. Scenario: a tick shrink
+    // apply fails (engineDegraded=true, desiredEngine=.unknown), then a successful append happens.
+    // appendAndWait only verifies the NEW entries, not the full union, so it must leave the retry
+    // armed; only a full verified re-apply (the next tick) may clear engineDegraded.
+    func testSuccessfulAppendDoesNotUnarmPendingRetry() throws {
+        let social = BlockSet(id: "s", name: "Social", domains: ["x.com"], appBundleIds: [], mode: .blocklist)
+        let adult = BlockSet(id: "a", name: "Adult", domains: ["adult.com"], appBundleIds: [], mode: .blocklist)
+        let now = FakeNow(Date(timeIntervalSince1970: 1_700_000_000))
+        let b = FlakyBlocker(forceVerified: true)
+        let (c, url, cfg) = try make("appendnounarm", sets: [social, adult], blocker: b, now: now)
+        defer { try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg) }
+
+        XCTAssertNil(c.startQuickLockReason(blockSetIds: ["a"], durationSeconds: 7200))   // long, target
+        XCTAssertNil(c.startQuickLockReason(blockSetIds: ["s"], durationSeconds: 600))    // short
+        now.d = now.d.addingTimeInterval(1200)   // past the short lock only
+        b.lock.lock(); b.failNextApplies = 1; b.lock.unlock()
+        c.reconcile()                            // shrink apply fails -> engineDegraded=true, desiredEngine=.unknown
+        drainEngine(c)
+        XCTAssertEqual(c.statusDTO().engineDegraded, true, "failed shrink must surface as degraded")
+
+        // a successful append lands on the surviving (longest-ending) lock
+        XCTAssertNil(c.appendDomainsToActiveBlockReason(["reddit.com"]))
+        XCTAssertEqual(c.statusDTO().engineDegraded, true,
+                       "append only verifies the new entries — it must not un-arm the pending D7 retry")
+
+        // next tick must still see the retry armed and perform a full verified union re-apply
+        c.reconcile()
+        drainEngine(c)
+        XCTAssertEqual(c.statusDTO().engineDegraded ?? true, false,
+                       "the retried tick apply verifies the full union and clears the flag")
+        XCTAssertEqual(lastApplyDomains(b), ["adult.com", "reddit.com"],
+                       "the retry re-applies the full survivor union, including the appended domain")
+    }
 }

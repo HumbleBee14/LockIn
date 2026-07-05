@@ -178,14 +178,21 @@ public final class BlockController {
                 restorePreviousUnion(snaps)
                 return "Block not applied at the system level."
             }
+            // full verified union apply (not just the new entries) — safe to un-arm any pending D7 retry
             desiredEngine = .block(domains: Set(e.domains), allowlist: true, expand: expand)
+            engineDegraded = false
         } else {
             // invariant: only record the domains in the snapshot once hosts actually carries them
             guard blocker.appendAndWait(newDomains: fresh, expandSubdomains: expand) else {
                 return "Block not applied at the system level."
             }
-            let e = EffectiveBlock.resolve(mutated)
-            desiredEngine = .block(domains: Set(e.domains), allowlist: false, expand: expand)
+            // appendAndWait verifies ONLY the new entries, not the full union — it must never un-arm a
+            // pending D7 retry (desiredEngine == .unknown). If a retry is armed, leave it armed; the
+            // engine still needs a full re-apply to pick up whatever the earlier failed write missed.
+            if !engineDegraded {
+                let e = EffectiveBlock.resolve(mutated)
+                desiredEngine = .block(domains: Set(e.domains), allowlist: false, expand: expand)
+            }
         }
         try? snapshotStore.save(mutated)
         return nil
