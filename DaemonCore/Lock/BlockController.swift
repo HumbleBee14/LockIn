@@ -151,7 +151,7 @@ public final class BlockController {
 
     // append-only, blocklist-only (the one change allowed mid-lock). nil = success, else surfaced reason.
     func appendDomainsToActiveBlockReason(_ domains: [String]) -> String? {
-        var snaps = snapshotStore.load()
+        let snaps = snapshotStore.load()
         // target = the blocklist snapshot that lives longest, so an added site stays blocked to the very end
         guard let i = snaps.indices.filter({ !snaps[$0].isAllowlist })
                 .max(by: { snaps[$0].endsAt < snaps[$1].endsAt }) else {
@@ -228,7 +228,7 @@ public final class BlockController {
     private(set) var engineDegraded = false
 
     private func syncEngineToDesiredState(_ snaps: [LockSnapshot]) {
-        guard let first = snaps.first else {
+        guard !snaps.isEmpty else {
             // clear on transition OR whenever a live block lingers (e.g. daemon restarted on a stale hosts block)
             if desiredEngine != .clear || blocker.liveBlockPresent() {
                 desiredEngine = .clear

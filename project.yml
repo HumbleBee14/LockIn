@@ -72,6 +72,10 @@ targets:
         GCC_PREFIX_HEADER: DaemonCore/Engine/Engine-Prefix.pch
         GCC_PRECOMPILE_PREFIX_HEADER: YES
         DEFINES_MODULE: YES
+        # nothing imports the generated -Swift.h (ObjC→Swift goes through the bridging header),
+        # and installing it trips the user-script sandbox on Xcode 26 (ditto EPERM in the
+        # auto-generated "Copy Swift Objective-C Interface Header" phase)
+        SWIFT_INSTALL_OBJC_HEADER: NO
         HEADER_SEARCH_PATHS:
           - $(SRCROOT)/DaemonCore
           - $(SRCROOT)/DaemonCore/Engine/Block Management
@@ -97,6 +101,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.humblebee.lockin.agentcore
         SWIFT_OBJC_BRIDGING_HEADER: AgentCore/Agent-Bridging-Header.h
         DEFINES_MODULE: YES
+        # see LockInDaemonCore note: unused generated header + Xcode 26 script sandbox
+        SWIFT_INSTALL_OBJC_HEADER: NO
   lockin-agent:
     type: tool
     platform: macOS
