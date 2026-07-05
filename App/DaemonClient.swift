@@ -85,6 +85,17 @@ final class DaemonClient: Sendable {
         }
     }
 
+    // nil on success; otherwise a short failure reason to show the user
+    func appendDomainsReason(_ domains: [String]) async -> String? {
+        await withCheckedContinuation { cont in
+            let c = connection()
+            let proxy = c.remoteObjectProxyWithErrorHandler { _ in
+                cont.resume(returning: "Couldn't reach the blocker. Try again or reinstall the helper.")
+            } as? LockInDaemonProtocol
+            proxy?.appendDomainsReturningReason(domains) { reason in cont.resume(returning: reason) }
+        }
+    }
+
     enum ResetResult { case done, failed, noHelper }
 
     func resetHostsToDefault() async -> ResetResult {
