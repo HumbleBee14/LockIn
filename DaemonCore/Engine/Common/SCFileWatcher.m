@@ -8,6 +8,11 @@
 #import "SCFileWatcher.h"
 #include <CoreServices/CoreServices.h>
 
+@interface SCFileWatcher ()
+// keeps the FSEvents callback queue alive for the stream's lifetime
+@property (strong) dispatch_queue_t eventQueue;
+@end
+
 @implementation SCFileWatcher
 
 static void SCFileWatcherGlobalCallback(
@@ -75,16 +80,16 @@ static void SCFileWatcherGlobalCallback(
         kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagMarkSelf | kFSEventStreamCreateFlagIgnoreSelf | kFSEventStreamCreateFlagFileEvents
     );
     
-    FSEventStreamScheduleWithRunLoop(eventStream,
-                                     [[NSRunLoop currentRunLoop] getCFRunLoop],
-                                     kCFRunLoopDefaultMode);
+    // dispatch-queue scheduling (the run-loop API is deprecated); callbacks arrive on this serial queue
+    dispatch_queue_t eventQueue = dispatch_queue_create("org.eyebeam.SelfControl.filewatcher", DISPATCH_QUEUE_SERIAL);
+    FSEventStreamSetDispatchQueue(eventStream, eventQueue);
     if (!FSEventStreamStart(eventStream)) {
         NSLog(@"WARNING: failed to start watching file %@", watchPath);
-        FSEventStreamUnscheduleFromRunLoop(eventStream, [[NSRunLoop currentRunLoop] getCFRunLoop], kCFRunLoopDefaultMode);
         FSEventStreamInvalidate(eventStream);
         FSEventStreamRelease(eventStream);
         return nil;
     }
+    _eventQueue = eventQueue;
     
     _eventStream = eventStream;
     _callbackBlock = callbackBlock;
@@ -94,11 +99,12 @@ static void SCFileWatcherGlobalCallback(
 
 - (void)stopWatching {
     FSEventStreamStop(self.eventStream);
-    FSEventStreamUnscheduleFromRunLoop(self.eventStream, [[NSRunLoop currentRunLoop] getCFRunLoop], kCFRunLoopDefaultMode);
+    // FSEventStreamInvalidate unschedules from the dispatch queue; no separate unschedule call exists
     FSEventStreamInvalidate(self.eventStream);
     FSEventStreamRelease(self.eventStream);
 
     _eventStream = NULL;
+    self.eventQueue = nil;
 }
 
 @end

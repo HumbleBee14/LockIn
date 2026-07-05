@@ -45,7 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if NSApp.windows.contains(where: { $0.canBecomeMain && !$0.isMiniaturized }) {
                 NSApp.windows.first?.makeKeyAndOrderFront(nil)
             } else {
-                NSApp.sendAction(Selector(("newWindowForTab:")), to: nil, from: nil)
+                NSApp.sendAction(#selector(NSWindow.newWindowForTab(_:)), to: nil, from: nil)
             }
             NSApp.activate(ignoringOtherApps: true)
         }

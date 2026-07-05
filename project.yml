@@ -4,6 +4,9 @@ options:
   deploymentTarget:
     macOS: "13.0"
   createIntermediateGroups: true
+attributes:
+  # matches Xcode 26.6 so the IDE stops offering "Update to recommended settings"
+  LastUpgradeCheck: "2660"
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -76,6 +79,8 @@ targets:
         # and installing it trips the user-script sandbox on Xcode 26 (ditto EPERM in the
         # auto-generated "Copy Swift Objective-C Interface Header" phase)
         SWIFT_INSTALL_OBJC_HEADER: NO
+        # NSString+IPAddress.m is a category-only file (local symbols only) — silence libtool's noise
+        OTHER_LIBTOOLFLAGS: -no_warning_for_no_symbols
         HEADER_SEARCH_PATHS:
           - $(SRCROOT)/DaemonCore
           - $(SRCROOT)/DaemonCore/Engine/Block Management
