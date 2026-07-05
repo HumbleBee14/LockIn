@@ -21,7 +21,10 @@ private final class FlakyBlocker: WebsiteBlocker, @unchecked Sendable {
     override func appendToActiveBlock(newDomains: [String], expandSubdomains: Bool) -> Bool { true }
     override func clear() -> Bool { true }
     override func liveBlockPresent() -> Bool { false }
-    override func blockIntact(domains: [String], allowlist: Bool, expandSubdomains: Bool) -> Bool { true }
+    var intact = true
+    override func blockIntact(domains: [String], allowlist: Bool, expandSubdomains: Bool) -> Bool {
+        lock.lock(); defer { lock.unlock() }; return intact
+    }
     func lastApply() -> (domains: Set<String>, allowlist: Bool, expand: Bool)? {
         lock.lock(); defer { lock.unlock() }; return applies.last
     }
@@ -108,6 +111,22 @@ final class StackedExpiryTests: XCTestCase {
         _ = c.registerSchedule(config)
         XCTAssertNil(c.startQuickLockReason(blockSetIds: ["a"], durationSeconds: 600))
         XCTAssertEqual(b.lastApply()?.expand, true, "any live snapshot wanting expansion turns it on (OR)")
+
+        // Force a TICK re-apply while BOTH locks are still live and disagree on expand:
+        // the long lock ("s", expand=false) was persisted first, so snaps.first has expand=false.
+        // Only the OR-based EffectiveBlock.effectiveExpand (not "use first snapshot's flag") can get
+        // this right; blockIntact=false forces reconcile() to re-apply on the tick path (not the
+        // stack path exercised above), so this pins the tick specifically.
+        b.lock.lock(); b.intact = false; b.lock.unlock()
+        c.reconcile()
+        drainEngine(c)
+        b.lock.lock(); b.intact = true; b.lock.unlock()
+        let tickApply = b.lastApply()
+        XCTAssertEqual(tickApply?.expand, true,
+                        "tick re-apply must OR across both live snapshots, not just snaps.first's flag")
+        XCTAssertEqual(tickApply?.domains, ["x.com", "adult.com"],
+                        "tick re-apply's domain set is the two-lock union while both are live")
+
         now.d = now.d.addingTimeInterval(1200)   // expand=true snapshot expires
         c.reconcile(); drainEngine(c)
         XCTAssertEqual(b.lastApply()?.expand, false, "survivor never asked for expansion; OR drops to false")
