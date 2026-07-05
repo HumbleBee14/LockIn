@@ -134,4 +134,22 @@ final class StackedLockTests: XCTestCase {
         wait(for: [refused], timeout: 2)
         XCTAssertEqual(c.loadSnapshots().count, 1, "a refused reset must not clear snapshots")
     }
+
+    private func todayRule(id: String, sets: [String]) -> Rule {
+        let wd = ((Calendar.current.dateComponents([.weekday], from: Date()).weekday! + 5) % 7) + 1
+        return Rule(id: id, weekdays: [wd], startHour: 0, startMinute: 0,
+                    endHour: 23, endMinute: 59, blockSetIds: sets, appBundleIds: [])
+    }
+
+    // T1 (scheduled half): a due rule joins an active quick lock; union enforced; both snapshots kept
+    func testScheduledRuleStacksOnActiveQuickLock() throws {
+        let rule = todayRule(id: "r1", sets: ["a"])
+        let (c, url, cfg) = try controller(ScheduleConfig(rules: [rule], blockSets: [social, adult]), "schedstack")
+        defer { cleanup(url, cfg) }
+        XCTAssertNil(c.startQuickLockReason(blockSetIds: ["s"], durationSeconds: 3600))
+        c.reconcile()
+        XCTAssertEqual(c.loadSnapshots().count, 2)
+        XCTAssertEqual(Set(c.statusDTO().appliedDomains), ["x.com", "shared.com", "adult.com"])
+        XCTAssertEqual(c.statusDTO().source, "scheduled", "aggregate source stays as today")
+    }
 }
