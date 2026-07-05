@@ -29,8 +29,21 @@ struct StackLockSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.l) {
-            Text("Add another lock")
-                .font(Theme.displayFont(18, .semibold)).foregroundStyle(Theme.mist)
+            HStack(alignment: .top) {
+                Text("Add another lock")
+                    .font(Theme.displayFont(18, .semibold)).foregroundStyle(Theme.mist)
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Theme.mistDim)
+                        .frame(width: 26, height: 26)
+                        .background(Theme.inkRaised)
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Close")
+            }
             Text("Stacks on top of what's already locked — it can only block more, and can't be turned off until it ends.")
                 .font(.system(size: 12)).foregroundStyle(Theme.mistDim)
 
@@ -59,7 +72,17 @@ struct StackLockSheet: View {
 
     private var createForm: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-            Text("New block set").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.mistDim)
+            HStack {
+                Text("New block set").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.mistDim)
+                Spacer()
+                // no way back out otherwise; only offer it when an existing set is available to fall back to
+                if !blocklistSets.isEmpty {
+                    Button("Cancel") {
+                        newSetName = ""; newSetDomains = ""; showCreate = false
+                    }
+                    .buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(Theme.mistDim)
+                }
+            }
             TextField("Name", text: $newSetName).textFieldStyle(.roundedBorder)
             TextField("Sites (e.g. x.com, reddit.com)", text: $newSetDomains).textFieldStyle(.roundedBorder)
             Button("Create") {
@@ -78,7 +101,13 @@ struct StackLockSheet: View {
 
     private var durationPicker: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-            Text("For how long").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.mistDim)
+            HStack {
+                Text("For how long").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.mistDim)
+                Spacer()
+                Text(Self.durationLabel(effectiveMinutes))
+                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.ember)
+                    .monospacedDigit()
+            }
             HStack(spacing: Theme.Spacing.xs) {
                 ForEach(presets, id: \.1) { preset in
                     chip(preset.0, selected: !customMode && durationMinutes == preset.1) {
@@ -88,9 +117,44 @@ struct StackLockSheet: View {
                 chip("Custom", selected: customMode) { customMode = true }
             }
             if customMode {
-                Slider(value: $customMinutes, in: 1...maxMinutes).tint(Theme.ember)
+                // custom themed track — the native Slider draws a harsh light track on dark backgrounds
+                themedSlider
             }
         }
+    }
+
+    // dark-themed replacement for the native Slider (whose track renders as a harsh light line here)
+    private var themedSlider: some View {
+        let knob: CGFloat = 18, track: CGFloat = 4
+        return GeometryReader { geo in
+            let usable = max(1, geo.size.width - knob)
+            let frac = (customMinutes - 1) / (maxMinutes - 1)   // 0…1
+            let x = CGFloat(frac) * usable
+            ZStack(alignment: .leading) {
+                Capsule().fill(Theme.inkRaised).frame(height: track)
+                Capsule().fill(Theme.ember).frame(width: x + knob / 2, height: track)
+                Circle().fill(.white).frame(width: knob, height: knob)
+                    .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
+                    .offset(x: x)
+            }
+            .frame(height: knob)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { value in
+                let clamped = min(max(0, value.location.x - knob / 2), usable)
+                let m = 1 + Double(clamped / usable) * (maxMinutes - 1)
+                customMinutes = m.rounded()
+            })
+        }
+        .frame(height: knob)
+    }
+
+    // "45 min" under an hour, "1:30" for hours+minutes, "2 hours" on the hour
+    static func durationLabel(_ minutes: Int) -> String {
+        let m = max(1, minutes)
+        if m < 60 { return "\(m) min" }
+        let h = m / 60, rem = m % 60
+        if rem == 0 { return h == 1 ? "1 hour" : "\(h) hours" }
+        return String(format: "%d:%02d", h, rem)
     }
 
     private func chip(_ label: String, selected: Bool, _ action: @escaping () -> Void) -> some View {
