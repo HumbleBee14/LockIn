@@ -3,6 +3,8 @@ import Foundation
 enum BlockLimits {
     static let maxActiveDomains = 100_000   // cap on stored/added domains per active block
     static let maxHostsEntries = 150_000    // hard ceiling on lines written to /etc/hosts
+    // user-initiated stacking cap only — reconcile's scheduled fires are never refused (spec D1)
+    public static let maxActiveLocks = 10
 }
 
 struct Rule: Codable, Equatable {
