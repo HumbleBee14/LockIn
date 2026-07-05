@@ -20,6 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
         // single-window app: never restore stale saved window state (it can yield a windowless foreground app)
         UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
+        // the AppTests host shares our bundle id — the single-instance guard would kill the test
+        // runner whenever the real app is open ("exited with code 0 before establishing connection")
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         guard let bundleId = Bundle.main.bundleIdentifier else { return }
         let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
             .filter { $0 != NSRunningApplication.current && !$0.isTerminated }
