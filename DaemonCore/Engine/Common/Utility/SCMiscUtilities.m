@@ -29,7 +29,7 @@
 // by Martin R et al on StackOverflow: https://stackoverflow.com/a/15451318
 + (NSString *)getSerialNumber {
     NSString *serial = nil;
-    io_service_t platformExpert = IOServiceGetMatchingService(kIOMasterPortDefault,
+    io_service_t platformExpert = IOServiceGetMatchingService(kIOMainPortDefault,
                                                               IOServiceMatching("IOPlatformExpertDevice"));
     if (platformExpert) {
         CFTypeRef serialNumberAsCFString =

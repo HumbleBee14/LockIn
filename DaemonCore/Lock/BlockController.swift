@@ -4,6 +4,7 @@ import Foundation
 enum EngineDesire: Equatable {
     case clear
     case block(domains: Set<String>, allowlist: Bool, expand: Bool)
+    case unknown   // engine state unverified (a write failed) — never equals `want`, so the next tick re-applies
 }
 
 // invariant: main-actor isolated so the timer loop and XPC handlers can't race on lock state
@@ -93,47 +94,107 @@ public final class BlockController {
 
     // nil on success; otherwise a short reason for the failure so the app can show it
     func startQuickLockReason(blockSetIds: [String], durationSeconds: Double) -> String? {
-        // the UI only offers quick lock from the fully-unlocked state, so an existing set means already locked
-        if !snapshotStore.load().isEmpty { return "A lock is already active." }
+        let existing = snapshotStore.load()
         let config = persistedConfig()
+        if existing.count >= BlockLimits.maxActiveLocks {
+            return "Too many locks are active (max \(BlockLimits.maxActiveLocks)). Wait for one to end."
+        }
         if domainCount(blockSetIds, in: config) > BlockLimits.maxActiveDomains {
             return "This block set is too large (over \(BlockLimits.maxActiveDomains) sites). Split it into smaller sets."
         }
         guard let r = resolveSets(blockSetIds, in: config) else {
             return "No valid sites to block (the selected sets are empty or mix allow/block modes)."
         }
-        let snap = freshSnapshot(id: "quick", mode: .adHoc, endsAt: now().addingTimeInterval(durationSeconds),
+        // invariant (Law 3): while anything is locked, a new lock may only shrink reachability
+        if !existing.isEmpty && r.isAllowlist {
+            return "Only blocklist locks can be added while a lock is active."
+        }
+        if Set(existing.flatMap(\.appliedDomains) + r.domains).count > BlockLimits.maxActiveDomains {
+            return "This would exceed the maximum of \(BlockLimits.maxActiveDomains) blocked sites."
+        }
+        let snap = freshSnapshot(id: "quick-" + UUID().uuidString, mode: .adHoc,
+                                 endsAt: now().addingTimeInterval(durationSeconds),
                                  r: r, settings: config.settings)
-        // synchronous here: the user is waiting on this XPC reply for success/failure (not the timer thread)
-        let applied = blocker.apply(domains: r.domains, allowlist: r.isAllowlist,
-                                    expandSubdomains: config.settings.expandSubdomains)
-        guard applied else { blocker.clearAsync(); return "Block not applied at the system level. Lock aborted." }
-        desiredEngine = .block(domains: Set(r.domains), allowlist: r.isAllowlist, expand: config.settings.expandSubdomains)
-        try? snapshotStore.save([snap])
-        appliedSnapshotIds = [snap.id]
-        pushAppUnion([snap])
+        let combined = existing + [snap]
+        let e = EffectiveBlock.resolve(combined)
+        let expand = EffectiveBlock.effectiveExpand(combined)
+        // synchronous to this XPC reply, but ordered on the serial engine queue (never interleaves a tick apply)
+        let applied = blocker.applyAndWait(domains: e.domains, allowlist: e.isAllowlist, expandSubdomains: expand)
+        guard applied else {
+            restorePreviousUnion(existing)
+            return "Block not applied at the system level. Lock aborted."
+        }
+        desiredEngine = .block(domains: Set(e.domains), allowlist: e.isAllowlist, expand: expand)
+        engineDegraded = false
+        try? snapshotStore.save(combined)
+        appliedSnapshotIds = Set(combined.map { $0.id })
+        pushAppUnion(combined)
         return nil
     }
 
-    // append-only, blocklist-only edit to the matching active snapshot (the one change allowed mid-lock)
-    func appendDomainsToActiveBlock(_ domains: [String]) -> Bool {
-        var snaps = snapshotStore.load()
-        guard let i = snaps.firstIndex(where: { !$0.isAllowlist }) else { return false }
+    // D1b: a failed forward apply may already have stripped the old union from live hosts —
+    // restore it verified; if that also fails, mark degraded and let every tick retry (.unknown)
+    private func restorePreviousUnion(_ existing: [LockSnapshot]) {
+        guard !existing.isEmpty else {
+            desiredEngine = .clear
+            blocker.clearAsync()
+            return
+        }
+        let prev = EffectiveBlock.resolve(existing)
+        let expand = EffectiveBlock.effectiveExpand(existing)
+        let restored = blocker.applyAndWait(domains: prev.domains, allowlist: prev.isAllowlist, expandSubdomains: expand)
+        engineDegraded = !restored
+        desiredEngine = restored
+            ? .block(domains: Set(prev.domains), allowlist: prev.isAllowlist, expand: expand)
+            : .unknown
+    }
+
+    // append-only, blocklist-only (the one change allowed mid-lock). nil = success, else surfaced reason.
+    func appendDomainsToActiveBlockReason(_ domains: [String]) -> String? {
+        let snaps = snapshotStore.load()
+        // target = the blocklist snapshot that lives longest, so an added site stays blocked to the very end
+        guard let i = snaps.indices.filter({ !snaps[$0].isAllowlist })
+                .max(by: { snaps[$0].endsAt < snaps[$1].endsAt }) else {
+            return "No blocklist lock is active."
+        }
         let existing = Set(snaps[i].appliedDomains)
         // invariant: same control-char/marker rejection as resolveSets — never write a raw XPC string to /etc/hosts
         let fresh = domains.filter { Self.isSafeDomain($0) && !existing.contains($0) }
-        guard !fresh.isEmpty else { return true }
-        guard snaps[i].appliedDomains.count + fresh.count <= BlockLimits.maxActiveDomains else { return false }
-        // invariant: only record the domains in the snapshot once hosts actually carries them
-        guard blocker.appendToActiveBlock(newDomains: fresh,
-                                          expandSubdomains: snaps[i].appliedSettings.expandSubdomains) else { return false }
-        snaps[i].appliedDomains.append(contentsOf: fresh)
-        try? snapshotStore.save(snaps)
-        // keep desired state in step with the larger set so the next tick doesn't trigger a full rebuild
-        let e = EffectiveBlock.resolve(snaps)
-        desiredEngine = .block(domains: Set(e.domains), allowlist: e.isAllowlist,
-                               expand: snaps[i].appliedSettings.expandSubdomains)
-        return true
+        guard !fresh.isEmpty else { return nil }   // filtered/no-op success, never a raw write
+        guard snaps[i].appliedDomains.count + fresh.count <= BlockLimits.maxActiveDomains else {
+            return "This lock already holds the maximum of \(BlockLimits.maxActiveDomains) sites."
+        }
+        guard Set(snaps.flatMap(\.appliedDomains) + fresh).count <= BlockLimits.maxActiveDomains else {
+            return "This would exceed the maximum of \(BlockLimits.maxActiveDomains) blocked sites."
+        }
+        var mutated = snaps
+        mutated[i].appliedDomains.append(contentsOf: fresh)
+        let expand = EffectiveBlock.effectiveExpand(mutated)
+        if mutated.contains(where: { $0.isAllowlist }) {
+            // mixed mode: append no-ops for allowlists, so re-apply the full effective union (D2)
+            let e = EffectiveBlock.resolve(mutated)
+            guard blocker.applyAndWait(domains: e.domains, allowlist: true, expandSubdomains: expand) else {
+                restorePreviousUnion(snaps)
+                return "Block not applied at the system level."
+            }
+            desiredEngine = .block(domains: Set(e.domains), allowlist: true, expand: expand)
+            engineDegraded = false
+        } else {
+            guard blocker.appendAndWait(newDomains: fresh, expandSubdomains: expand) else {
+                return "Block not applied at the system level."
+            }
+            // append verifies only the new entries, so a pending D7 retry (.unknown) must stay armed
+            if !engineDegraded {
+                let e = EffectiveBlock.resolve(mutated)
+                desiredEngine = .block(domains: Set(e.domains), allowlist: false, expand: expand)
+            }
+        }
+        try? snapshotStore.save(mutated)
+        return nil
+    }
+
+    func appendDomainsToActiveBlock(_ domains: [String]) -> Bool {
+        appendDomainsToActiveBlockReason(domains) == nil
     }
 
     // the reconcile tick: drop expired (now >= endsAt), add newly-due rules, persist, then hand the engine the union
@@ -158,8 +219,11 @@ public final class BlockController {
     // set when a teardown can't fully clear hosts/pf; surfaced in status so the app can prompt a manual Reset
     private var cleanupFailed = false
 
+    // a live-lock engine write keeps failing; direction is over-block, tick retries (spec D7)
+    private(set) var engineDegraded = false
+
     private func syncEngineToDesiredState(_ snaps: [LockSnapshot]) {
-        guard let first = snaps.first else {
+        guard !snaps.isEmpty else {
             // clear on transition OR whenever a live block lingers (e.g. daemon restarted on a stale hosts block)
             if desiredEngine != .clear || blocker.liveBlockPresent() {
                 desiredEngine = .clear
@@ -170,15 +234,27 @@ public final class BlockController {
             return
         }
         let e = EffectiveBlock.resolve(snaps)
-        let want = EngineDesire.block(domains: Set(e.domains), allowlist: e.isAllowlist,
-                                      expand: first.appliedSettings.expandSubdomains)
-        // re-apply only when the desired set actually changed, OR the live block drifted (tamper self-heal)
+        let expand = EffectiveBlock.effectiveExpand(snaps)
+        let want = EngineDesire.block(domains: Set(e.domains), allowlist: e.isAllowlist, expand: expand)
+        // re-apply when the desired set changed, the live block drifted (tamper self-heal),
+        // or a prior write failed (.unknown never equals want → built-in retry)
         let drifted = !blocker.blockIntact(domains: e.domains, allowlist: e.isAllowlist,
-                                           expandSubdomains: first.appliedSettings.expandSubdomains)
+                                           expandSubdomains: expand)
         if want != desiredEngine || drifted {
             desiredEngine = want
             blocker.applyAsync(domains: e.domains, allowlist: e.isAllowlist,
-                               expandSubdomains: first.appliedSettings.expandSubdomains)
+                               expandSubdomains: expand) { [weak self] ok in
+                Task { @MainActor in
+                    guard let self else { return }
+                    if ok { self.engineDegraded = false }
+                    else {
+                        // fail-closed: enforcement never weakens early; retry next tick and surface it.
+                        // a late failure may stomp a fresher desiredEngine — harmless: one extra verified re-apply.
+                        self.engineDegraded = true
+                        self.desiredEngine = .unknown
+                    }
+                }
+            }
         }
         pushAppUnion(snaps)
         if !e.apps.isEmpty && !appBlocker.isMonitoring() {
@@ -210,9 +286,13 @@ public final class BlockController {
         configStore.load() ?? ScheduleConfig(rules: [])
     }
 
-    // recovery: always overwrites /etc/hosts with the macOS default. unconditional by design — it's the escape
-    // hatch when state is wrong. runs off-main on the engine queue so an in-flight 70K apply can't wedge it.
+    // recovery: overwrites /etc/hosts with the macOS default. it's the escape hatch when state is wrong —
+    // but it is not a disguised unlock (D6): refuse while any un-expired lock exists, mutating nothing.
+    // runs off-main on the engine queue so an in-flight 70K apply can't wedge it.
     func resetHostsToDefault(completion: @escaping @Sendable (Bool) -> Void) {
+        // invariant (D6): reset is recovery, not an unlock — refuse while any un-expired lock exists.
+        // post-expiry dirty hosts (empty/expired store, live block) stays allowed: that's the recovery case.
+        if snapshotStore.load().contains(where: { now() < $0.endsAt }) { completion(false); return }
         desiredEngine = .clear
         try? snapshotStore.clear()
         blocker.resetToSystemDefaultAsync { [weak self] ok in
@@ -253,6 +333,14 @@ public final class BlockController {
         let e = EffectiveBlock.resolve(snaps)
         let anyScheduled = snaps.contains { $0.mode == .scheduled }
         let title = snaps.count == 1 ? snaps[0].blockSetTitle : "\(snaps[0].blockSetTitle) +\(snaps.count - 1)"
+        let sorted = snaps.sorted { $0.endsAt < $1.endsAt }
+        let locks = sorted.map {
+            ActiveLockInfo(id: $0.id, title: $0.blockSetTitle,
+                           source: $0.mode == .scheduled ? "scheduled" : "quick",
+                           endsAt: $0.endsAt, isAllowlist: $0.isAllowlist,
+                           blockSetId: $0.blockSetId, domainCount: $0.appliedDomains.count)
+        }
+        let appendTarget = snaps.filter { !$0.isAllowlist }.max { $0.endsAt < $1.endsAt }?.blockSetId
         return DaemonStatus(
             active: true,
             source: anyScheduled ? "scheduled" : "quick",
@@ -263,7 +351,10 @@ public final class BlockController {
             appliedDomains: e.domains,
             appliedAppBundleIds: e.apps,
             nextTriggerDescription: nil,
-            pfApplied: blocker.isApplied())
+            pfApplied: blocker.isApplied(),
+            locks: locks,
+            appendTargetBlockSetId: appendTarget,
+            engineDegraded: engineDegraded)
     }
 
     // when the user is fully free: the latest endsAt across active snapshots (stable, won't jump between polls)

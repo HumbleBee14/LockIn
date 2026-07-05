@@ -1,19 +1,32 @@
 import Foundation
 
 class WebsiteBlocker: @unchecked Sendable {
-    // forces apply() to report success in tests, which can't write /etc/hosts or enable pf
+    // test-only: forces apply() success (tests can't write /etc/hosts or enable pf)
     private let forceVerified: Bool
 
-    // every engine mutation runs here: serial so apply/clear can't interleave, a real thread so the
-    // main actor (timer + XPC) never blocks on a 70K hosts write. this is THE fix for the freeze/wedge.
+    // serial queue: apply/clear can't interleave, and the main actor (timer + XPC) never blocks on a large hosts write
     private let engineQueue = DispatchQueue(label: "com.humblebee.lockin.engine", qos: .userInitiated)
 
     init(forceVerified: Bool = false) {
         self.forceVerified = forceVerified
     }
 
-    func applyAsync(domains: [String], allowlist: Bool, expandSubdomains: Bool) {
-        engineQueue.async { [self] in _ = apply(domains: domains, allowlist: allowlist, expandSubdomains: expandSubdomains) }
+    func applyAsync(domains: [String], allowlist: Bool, expandSubdomains: Bool,
+                    completion: (@Sendable (Bool) -> Void)? = nil) {
+        engineQueue.async { [self] in
+            let ok = apply(domains: domains, allowlist: allowlist, expandSubdomains: expandSubdomains)
+            completion?(ok)
+        }
+    }
+
+    // synchronous to the caller but strictly ordered on the serial engine queue — the XPC reply
+    // paths (stack, append) use these so a user action can never interleave with a tick apply
+    func applyAndWait(domains: [String], allowlist: Bool, expandSubdomains: Bool) -> Bool {
+        engineQueue.sync { apply(domains: domains, allowlist: allowlist, expandSubdomains: expandSubdomains) }
+    }
+
+    func appendAndWait(newDomains: [String], expandSubdomains: Bool) -> Bool {
+        engineQueue.sync { appendToActiveBlock(newDomains: newDomains, expandSubdomains: expandSubdomains) }
     }
 
     func clearAsync(completion: (@Sendable (Bool) -> Void)? = nil) {

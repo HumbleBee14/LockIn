@@ -16,7 +16,14 @@ final class StatusViewModel: ObservableObject {
     // never trap the user on a Reconnecting screen.
     var lostConnection: Bool { everConnected && !reachable }
 
-    var canAddDomains: Bool { isActive && !(status?.isAllowlist ?? false) }
+    var canAddDomains: Bool {
+        guard isActive else { return false }
+        if let locks = status?.locks { return locks.contains { !$0.isAllowlist } }
+        return !(status?.isAllowlist ?? false)   // old daemon: aggregate fallback
+    }
+
+    // "+ New Lock" needs a daemon that reports per-lock status — an old daemon refuses every stack
+    var canStackLock: Bool { isActive && status?.locks != nil }
 
     var countdownText: String {
         guard let end = status?.endsAt else { return "" }
@@ -50,13 +57,15 @@ final class StatusViewModel: ObservableObject {
         await client.startQuickLock(blockSetIds: blockSetIds, duration: Double(minutes * 60))
     }
 
-    func addDomains(_ domains: [String], persistingTo store: ScheduleStore?) async -> Bool {
-        let ok = await client.appendDomains(domains)
-        if ok, let store, let id = status?.blockSetId, !id.isEmpty {
+    // nil on success; otherwise the reason to surface. persists into the daemon-declared append
+    // target set (the longest-running blocklist lock's set) — never the aggregate blockSetId.
+    func addDomains(_ domains: [String], persistingTo store: ScheduleStore?) async -> String? {
+        let reason = await client.appendDomainsReason(domains)
+        if reason == nil, let store, let id = status?.appendTargetBlockSetId, !id.isEmpty {
             store.addDomains(domains, toBlockSet: id)
             _ = await store.commit()
         }
         await refresh()
-        return ok
+        return reason
     }
 }

@@ -66,7 +66,7 @@ final class PinnedTrustedTimeSource: NSObject, TrustedTimeSource, URLSessionDele
         request.httpMethod = "HEAD"
         request.timeoutInterval = perRequestTimeout
         let session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: nil)
-        var result: Date?
+        let box = DateBox()   // captured var trips strict concurrency; the semaphore already orders write→read
         let sem = DispatchSemaphore(value: 0)
         session.dataTask(with: request) { _, response, _ in
             defer { sem.signal() }
@@ -76,11 +76,11 @@ final class PinnedTrustedTimeSource: NSObject, TrustedTimeSource, URLSessionDele
             formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.timeZone = TimeZone(identifier: "GMT")
             formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
-            result = formatter.date(from: dateString)
+            box.value = formatter.date(from: dateString)
         }.resume()
         _ = sem.wait(timeout: .now() + perRequestTimeout + 1)
         session.invalidateAndCancel()
-        return result
+        return box.value
     }
 
     func urlSession(_ session: URLSession,
@@ -138,5 +138,15 @@ private enum SHA256 {
         var digest = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
         CC_SHA256_Final(&digest, &ctx)
         return Data(digest).base64EncodedString()
+    }
+}
+
+// minimal lock-box so a completion handler can hand a Date across threads without a captured-var warning
+private final class DateBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: Date?
+    var value: Date? {
+        get { lock.lock(); defer { lock.unlock() }; return stored }
+        set { lock.lock(); defer { lock.unlock() }; stored = newValue }
     }
 }

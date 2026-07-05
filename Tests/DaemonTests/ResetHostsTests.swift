@@ -1,8 +1,9 @@
 import XCTest
 @testable import LockInDaemonCore
 
-// recovery reset must be unconditional (the escape hatch when state is wrong) and never block the caller —
-// it overwrites /etc/hosts with the macOS default regardless of whether a snapshot/lock is present.
+// recovery reset is the escape hatch when hosts state is wrong and no lock is holding it. It is unconditional
+// with respect to *dirty hosts* (empty/expired snapshot store + a lingering live block) but is refused while
+// any un-expired snapshot exists — that's a live lock, and reset must never be a disguised unlock (D6).
 private final class ResetSpyBlocker: WebsiteBlocker, @unchecked Sendable {
     var resetCount = 0
     init() { super.init(forceVerified: true) }
@@ -24,19 +25,45 @@ final class ResetHostsTests: XCTestCase {
         return (c, url, cfg)
     }
 
-    func testResetSucceedsEvenWhenSnapshotPresent() throws {
+    func testResetRefusedWhileUnexpiredSnapshotPresent() throws {
         let spy = ResetSpyBlocker()
         let (c, url, cfg) = try make("reset-locked", blocker: spy)
         defer { try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg) }
-        // a lock snapshot exists — reset must STILL proceed (the old code refused here)
+        // an un-expired lock snapshot exists — reset must refuse (D6: reset is recovery, not an unlock)
         try LockSnapshotStore(path: url).save([LockSnapshot(id: "quick", mode: .adHoc,
             endsAt: Date(timeIntervalSince1970: 9_999_999_999), isAllowlist: false, appliedDomains: ["x.com"],
             appliedAppBundleIds: [], appliedSettings: SettingsConfig(), blockSetId: "b", blockSetTitle: "B")])
 
         let exp = expectation(description: "reset replied")
+        c.resetHostsToDefault { ok in XCTAssertFalse(ok); exp.fulfill() }
+        wait(for: [exp], timeout: 2.0)
+        XCTAssertEqual(spy.resetCount, 0, "a refused reset must never touch the engine")
+        XCTAssertEqual(c.loadSnapshots().count, 1, "a refused reset must not clear the snapshot")
+    }
+
+    func testResetSucceedsWhenSnapshotStoreIsEmpty() throws {
+        let spy = ResetSpyBlocker()
+        let (c, url, cfg) = try make("reset-empty", blocker: spy)
+        defer { try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg) }
+        // no snapshot at all (e.g. dirty hosts lingering after a failed teardown) — this is the recovery path
+        let exp = expectation(description: "reset replied")
         c.resetHostsToDefault { ok in XCTAssertTrue(ok); exp.fulfill() }
         wait(for: [exp], timeout: 2.0)
-        XCTAssertEqual(spy.resetCount, 1, "reset must run the engine reset unconditionally")
-        XCTAssertTrue(c.loadSnapshots().isEmpty, "reset clears the snapshot so the daemon stops re-applying")
+        XCTAssertEqual(spy.resetCount, 1, "reset must run the engine reset when no lock is holding hosts")
+    }
+
+    func testResetSucceedsWhenAllSnapshotsExpired() throws {
+        let spy = ResetSpyBlocker()
+        let (c, url, cfg) = try make("reset-expired", blocker: spy)
+        defer { try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg) }
+        // a stale, already-expired snapshot lingering on disk must not block recovery
+        try LockSnapshotStore(path: url).save([LockSnapshot(id: "quick", mode: .adHoc,
+            endsAt: Date(timeIntervalSince1970: 1), isAllowlist: false, appliedDomains: ["x.com"],
+            appliedAppBundleIds: [], appliedSettings: SettingsConfig(), blockSetId: "b", blockSetTitle: "B")])
+
+        let exp = expectation(description: "reset replied")
+        c.resetHostsToDefault { ok in XCTAssertTrue(ok); exp.fulfill() }
+        wait(for: [exp], timeout: 2.0)
+        XCTAssertEqual(spy.resetCount, 1, "an expired-only snapshot store must not block recovery")
     }
 }

@@ -39,14 +39,15 @@ final class AppBlockerUpdateTests: XCTestCase {
         try? FileManager.default.removeItem(at: cfg)
     }
 
-    func testQuickLockRefusedWhenAlreadyActive() throws {
+    // stacking (D1): a second blocklist quick lock while one is active now stacks rather than refuses
+    func testQuickLockStacksWhenAlreadyActive() throws {
         let spy = SpyAppBlocker()
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("active-push3.plist")
         let cfg = FileManager.default.temporaryDirectory.appendingPathComponent("config-push3.plist")
         let controller = try makeController(apps: ["com.tinyspeck.slackmacgap"], spy: spy, url: url, cfg: cfg)
         XCTAssertTrue(controller.startQuickLock(blockSetIds: ["x"], durationSeconds: 60))
-        XCTAssertFalse(controller.startQuickLock(blockSetIds: ["x"], durationSeconds: 60),
-            "a second quick lock must be refused while one is active")
+        XCTAssertTrue(controller.startQuickLock(blockSetIds: ["x"], durationSeconds: 60),
+            "a second blocklist quick lock must stack while one is active")
         try? FileManager.default.removeItem(at: url)
         try? FileManager.default.removeItem(at: cfg)
     }

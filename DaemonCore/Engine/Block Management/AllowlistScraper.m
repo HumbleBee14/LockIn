@@ -19,9 +19,18 @@
 
 	// stale data is OK
 	NSURLRequest* request = [NSURLRequest requestWithURL: rootURL cachePolicy: NSURLRequestReturnCacheDataElseLoad timeoutInterval: 5];
-	NSURLResponse* response = nil;
-	NSError* error = nil;
-	NSData* data = [NSURLConnection sendSynchronousRequest: request returningResponse: &response error: &error];
+	// NSURLSession with a semaphore keeps the old sendSynchronousRequest semantics (callers expect blocking)
+	__block NSData* data = nil;
+	__block NSURLResponse* response = nil;
+	dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+	NSURLSessionDataTask* task = [[NSURLSession sharedSession] dataTaskWithRequest: request
+		completionHandler: ^(NSData* taskData, NSURLResponse* taskResponse, NSError* taskError) {
+			data = taskData;
+			response = taskResponse;
+			dispatch_semaphore_signal(sem);
+		}];
+	[task resume];
+	dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(10 * NSEC_PER_SEC)));
 	if (!response) {
 		return nil;
 	}

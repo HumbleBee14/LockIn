@@ -90,7 +90,8 @@ final class AppBlocker: AppBlocking, @unchecked Sendable {
         var buf = [CChar](repeating: 0, count: Self.maxPathSize)
         let len = proc_pidpath(pid, &buf, UInt32(buf.count))
         guard len > 0 else { return nil }
-        let execPath = String(cString: buf)
+        let execPath = String(decoding: buf.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) },
+                              as: UTF8.self)
         var path = execPath as NSString
         while path.length > 1 {
             if path.hasSuffix(".app") {

@@ -14,7 +14,9 @@ enum ProcessLiveness {
         for i in 0..<n where pids[i] != 0 {
             let len = proc_pidpath(pids[i], &buf, UInt32(buf.count))
             guard len > 0 else { continue }
-            if String(cString: buf).hasSuffix(executableSuffix) { return true }
+            let path = String(decoding: buf.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) },
+                              as: UTF8.self)
+            if path.hasSuffix(executableSuffix) { return true }
         }
         return false
     }
