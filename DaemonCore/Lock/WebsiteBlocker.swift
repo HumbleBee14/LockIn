@@ -12,8 +12,22 @@ class WebsiteBlocker: @unchecked Sendable {
         self.forceVerified = forceVerified
     }
 
-    func applyAsync(domains: [String], allowlist: Bool, expandSubdomains: Bool) {
-        engineQueue.async { [self] in _ = apply(domains: domains, allowlist: allowlist, expandSubdomains: expandSubdomains) }
+    func applyAsync(domains: [String], allowlist: Bool, expandSubdomains: Bool,
+                    completion: (@Sendable (Bool) -> Void)? = nil) {
+        engineQueue.async { [self] in
+            let ok = apply(domains: domains, allowlist: allowlist, expandSubdomains: expandSubdomains)
+            completion?(ok)
+        }
+    }
+
+    // synchronous to the caller but strictly ordered on the serial engine queue — the XPC reply
+    // paths (stack, append) use these so a user action can never interleave with a tick apply
+    func applyAndWait(domains: [String], allowlist: Bool, expandSubdomains: Bool) -> Bool {
+        engineQueue.sync { apply(domains: domains, allowlist: allowlist, expandSubdomains: expandSubdomains) }
+    }
+
+    func appendAndWait(newDomains: [String], expandSubdomains: Bool) -> Bool {
+        engineQueue.sync { appendToActiveBlock(newDomains: newDomains, expandSubdomains: expandSubdomains) }
     }
 
     func clearAsync(completion: (@Sendable (Bool) -> Void)? = nil) {

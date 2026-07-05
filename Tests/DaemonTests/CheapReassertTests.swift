@@ -12,8 +12,10 @@ private final class SpyBlocker: WebsiteBlocker, @unchecked Sendable {
         return true
     }
     // run engine ops synchronously in tests so counts are deterministic right after a tick
-    override func applyAsync(domains: [String], allowlist: Bool, expandSubdomains: Bool) {
-        _ = apply(domains: domains, allowlist: allowlist, expandSubdomains: expandSubdomains)
+    override func applyAsync(domains: [String], allowlist: Bool, expandSubdomains: Bool,
+                             completion: (@Sendable (Bool) -> Void)? = nil) {
+        let ok = apply(domains: domains, allowlist: allowlist, expandSubdomains: expandSubdomains)
+        completion?(ok)
     }
     override func clearAsync(completion: (@Sendable (Bool) -> Void)? = nil) { completion?(clear()) }
     override func liveBlockPresent() -> Bool { present }
