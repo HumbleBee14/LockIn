@@ -165,4 +165,97 @@ final class StackedExpiryTests: XCTestCase {
         XCTAssertEqual(lastApplyDomains(b), ["adult.com", "reddit.com"],
                        "the retry re-applies the full survivor union, including the appended domain")
     }
+
+    // FIX 2a: rollback with existing locks — stacking B fails; A's exact union must be restored verified,
+    // A's snapshot must be the only one left, and the flag must read clean (the restore succeeded).
+    func testFailedStackApplyRestoresExistingLockUnion() throws {
+        let social = BlockSet(id: "s", name: "Social", domains: ["x.com", "shared.com"], appBundleIds: [], mode: .blocklist)
+        let adult = BlockSet(id: "a", name: "Adult", domains: ["adult.com"], appBundleIds: [], mode: .blocklist)
+        let now = FakeNow(Date(timeIntervalSince1970: 1_700_000_000))
+        let b = FlakyBlocker(forceVerified: true)
+        let (c, url, cfg) = try make("rollbackexisting", sets: [social, adult], blocker: b, now: now)
+        defer { try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg) }
+
+        XCTAssertNil(c.startQuickLockReason(blockSetIds: ["s"], durationSeconds: 3600))   // A succeeds
+        let aUnion: Set<String> = ["x.com", "shared.com"]
+        XCTAssertEqual(lastApplyDomains(b), aUnion)
+
+        b.lock.lock(); b.failNextApplies = 1; b.lock.unlock()   // only the forward (union) apply fails
+        let reason = c.startQuickLockReason(blockSetIds: ["a"], durationSeconds: 600)
+        XCTAssertNotNil(reason, "a failed stack apply must return a reason")
+
+        XCTAssertEqual(c.loadSnapshots().count, 1, "B must never be saved; exactly A's snapshot remains")
+        XCTAssertEqual(Set(c.loadSnapshots()[0].appliedDomains), aUnion)
+        XCTAssertEqual(lastApplyDomains(b), aUnion, "the restore (last apply) re-applied A's exact union")
+        XCTAssertEqual(c.statusDTO().engineDegraded ?? true, false, "the verified restore clears any degraded flag")
+    }
+
+    // FIX 2b: rollback where the restore ALSO fails — must surface degraded and stay recoverable by
+    // a later successful reconcile, which re-applies A's union and clears the flag (D7 tick retry).
+    func testFailedStackApplyAndFailedRestoreSurfacesDegradedThenRecovers() throws {
+        let social = BlockSet(id: "s", name: "Social", domains: ["x.com", "shared.com"], appBundleIds: [], mode: .blocklist)
+        let adult = BlockSet(id: "a", name: "Adult", domains: ["adult.com"], appBundleIds: [], mode: .blocklist)
+        let now = FakeNow(Date(timeIntervalSince1970: 1_700_000_000))
+        let b = FlakyBlocker(forceVerified: true)
+        let (c, url, cfg) = try make("rollbackfail", sets: [social, adult], blocker: b, now: now)
+        defer { try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg) }
+
+        XCTAssertNil(c.startQuickLockReason(blockSetIds: ["s"], durationSeconds: 3600))   // A succeeds
+        let aUnion: Set<String> = ["x.com", "shared.com"]
+
+        b.lock.lock(); b.failNextApplies = 2; b.lock.unlock()   // forward apply AND the restore both fail
+        let reason = c.startQuickLockReason(blockSetIds: ["a"], durationSeconds: 600)
+        XCTAssertNotNil(reason, "a failed stack apply must return a reason")
+
+        XCTAssertEqual(c.loadSnapshots().count, 1, "B must never be saved; exactly A's snapshot remains")
+        XCTAssertEqual(c.statusDTO().engineDegraded, true, "a failed restore must surface as degraded")
+
+        // recovery: a later successful reconcile + drain re-applies A's union and clears the flag
+        c.reconcile()
+        drainEngine(c)
+        XCTAssertEqual(c.statusDTO().engineDegraded ?? true, false, "the retried tick apply converges and clears it")
+        XCTAssertEqual(lastApplyDomains(b), aUnion, "convergence re-applies A's exact union")
+    }
+
+    // FIX 2c: stacking must refuse when the resulting UNION (not either set alone) would exceed the cap.
+    func testStackUnionCapRefusedWithReason() throws {
+        let bigDomains = (0..<(BlockLimits.maxActiveDomains - 1)).map { "d\($0).com" }
+        let big = BlockSet(id: "big", name: "Big", domains: bigDomains, appBundleIds: [], mode: .blocklist)
+        let extra = BlockSet(id: "extra", name: "Extra", domains: ["extra1.com", "extra2.com"],
+                             appBundleIds: [], mode: .blocklist)
+        let b = FlakyBlocker(forceVerified: true)
+        let (c, url, cfg) = try make("stackunioncap", sets: [big, extra], blocker: b, now: FakeNow(Date()))
+        defer { try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg) }
+
+        XCTAssertNil(c.startQuickLockReason(blockSetIds: ["big"], durationSeconds: 3600))
+        XCTAssertEqual(c.loadSnapshots().count, 1)
+
+        let reason = c.startQuickLockReason(blockSetIds: ["extra"], durationSeconds: 600)
+        XCTAssertEqual(reason, "This would exceed the maximum of \(BlockLimits.maxActiveDomains) blocked sites.")
+        XCTAssertEqual(c.loadSnapshots().count, 1, "a refused stack must not add a snapshot")
+    }
+
+    // FIX 2d: append must hit the UNION-cap guard specifically, not the per-target guard, when the
+    // append target (latest-ending) is itself far under its own per-target cap. Construct: A is the
+    // big, SHORT-lived lock (99,999 domains); B is the small, LONG-lived lock (1 domain) — B is the
+    // append target. Stacking A+B lands the union exactly at the cap (100,000, allowed). Appending
+    // one more fresh domain keeps B's own count trivially under cap but pushes the union over it.
+    func testAppendUnionCapRefusedWhenTargetIsUnderPerTargetCap() throws {
+        let bigDomains = (0..<(BlockLimits.maxActiveDomains - 1)).map { "d\($0).com" }
+        let big = BlockSet(id: "big", name: "Big", domains: bigDomains, appBundleIds: [], mode: .blocklist)
+        let small = BlockSet(id: "small", name: "Small", domains: ["small.com"], appBundleIds: [], mode: .blocklist)
+        let b = FlakyBlocker(forceVerified: true)
+        let (c, url, cfg) = try make("appendunioncap", sets: [big, small], blocker: b, now: FakeNow(Date()))
+        defer { try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg) }
+
+        XCTAssertNil(c.startQuickLockReason(blockSetIds: ["big"], durationSeconds: 600))     // short: A, target initially
+        XCTAssertNil(c.startQuickLockReason(blockSetIds: ["small"], durationSeconds: 7200))  // long: B becomes target
+        XCTAssertEqual(c.statusDTO().appendTargetBlockSetId, "small", "the small, longer-lived lock is the append target")
+        XCTAssertEqual(Set(c.loadSnapshots().flatMap(\.appliedDomains)).count, BlockLimits.maxActiveDomains,
+                       "union sits exactly at the cap before the append")
+
+        let reason = c.appendDomainsToActiveBlockReason(["fresh-one-more.com"])
+        XCTAssertEqual(reason, "This would exceed the maximum of \(BlockLimits.maxActiveDomains) blocked sites.",
+                       "the union guard must trip even though the target's own domain count is trivially under cap")
+    }
 }
