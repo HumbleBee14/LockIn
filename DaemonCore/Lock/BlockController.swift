@@ -171,24 +171,19 @@ public final class BlockController {
         mutated[i].appliedDomains.append(contentsOf: fresh)
         let expand = EffectiveBlock.effectiveExpand(mutated)
         if mutated.contains(where: { $0.isAllowlist }) {
-            // mixed mode: BlockManager's append no-ops for allowlists — re-apply the full effective
-            // union (D2 subtracts the new domain's expansion), so the site is unreachable immediately
+            // mixed mode: append no-ops for allowlists, so re-apply the full effective union (D2)
             let e = EffectiveBlock.resolve(mutated)
             guard blocker.applyAndWait(domains: e.domains, allowlist: true, expandSubdomains: expand) else {
                 restorePreviousUnion(snaps)
                 return "Block not applied at the system level."
             }
-            // full verified union apply (not just the new entries) — safe to un-arm any pending D7 retry
             desiredEngine = .block(domains: Set(e.domains), allowlist: true, expand: expand)
             engineDegraded = false
         } else {
-            // invariant: only record the domains in the snapshot once hosts actually carries them
             guard blocker.appendAndWait(newDomains: fresh, expandSubdomains: expand) else {
                 return "Block not applied at the system level."
             }
-            // appendAndWait verifies ONLY the new entries, not the full union — it must never un-arm a
-            // pending D7 retry (desiredEngine == .unknown). If a retry is armed, leave it armed; the
-            // engine still needs a full re-apply to pick up whatever the earlier failed write missed.
+            // append verifies only the new entries, so a pending D7 retry (.unknown) must stay armed
             if !engineDegraded {
                 let e = EffectiveBlock.resolve(mutated)
                 desiredEngine = .block(domains: Set(e.domains), allowlist: false, expand: expand)

@@ -1,11 +1,10 @@
 import Foundation
 
 class WebsiteBlocker: @unchecked Sendable {
-    // forces apply() to report success in tests, which can't write /etc/hosts or enable pf
+    // test-only: forces apply() success (tests can't write /etc/hosts or enable pf)
     private let forceVerified: Bool
 
-    // every engine mutation runs here: serial so apply/clear can't interleave, a real thread so the
-    // main actor (timer + XPC) never blocks on a 70K hosts write. this is THE fix for the freeze/wedge.
+    // serial queue: apply/clear can't interleave, and the main actor (timer + XPC) never blocks on a large hosts write
     private let engineQueue = DispatchQueue(label: "com.humblebee.lockin.engine", qos: .userInitiated)
 
     init(forceVerified: Bool = false) {

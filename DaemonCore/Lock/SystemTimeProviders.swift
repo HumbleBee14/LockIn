@@ -66,9 +66,7 @@ final class PinnedTrustedTimeSource: NSObject, TrustedTimeSource, URLSessionDele
         request.httpMethod = "HEAD"
         request.timeoutInterval = perRequestTimeout
         let session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: nil)
-        // lock-boxed instead of a captured var: the semaphore already orders the write before the
-        // read, but strict concurrency can't see through it
-        let box = DateBox()
+        let box = DateBox()   // captured var trips strict concurrency; the semaphore already orders write→read
         let sem = DispatchSemaphore(value: 0)
         session.dataTask(with: request) { _, response, _ in
             defer { sem.signal() }
