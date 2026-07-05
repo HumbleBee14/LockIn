@@ -1,5 +1,7 @@
 import AppKit
-import UserNotifications
+// UNUserNotificationCenter isn't Sendable-annotated, but its completion handlers are documented
+// safe to invoke from any queue — downgrade the strict-concurrency diagnostics for this module
+@preconcurrency import UserNotifications
 
 final class NotifierDelegate: NSObject, NSApplicationDelegate {
     private let safetyTimeout: TimeInterval = 30.0

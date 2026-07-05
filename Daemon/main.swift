@@ -57,7 +57,8 @@ final class DaemonRuntime {
         _NSGetExecutablePath(nil, &size)
         var buf = [CChar](repeating: 0, count: Int(size))
         guard _NSGetExecutablePath(&buf, &size) == 0 else { return nil }
-        let exe = URL(fileURLWithPath: String(cString: buf)).resolvingSymlinksInPath()
+        let bytes = buf.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) }
+        let exe = URL(fileURLWithPath: String(decoding: bytes, as: UTF8.self)).resolvingSymlinksInPath()
         return exe.deletingLastPathComponent().deletingLastPathComponent()
                   .deletingLastPathComponent().path
     }

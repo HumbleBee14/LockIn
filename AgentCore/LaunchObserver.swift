@@ -9,12 +9,11 @@ public final class LaunchObserver {
     public func start() {
         token = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didLaunchApplicationNotification,
-            object: nil, queue: .main) { [weak self] note in
-            guard let self,
-                  let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+            object: nil, queue: .main) { note in
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
                   let bid = app.bundleIdentifier else { return }
             let iconPath = Self.writeIcon(for: app)
-            self.notifyIfBlocked(bundleId: bid, appName: Self.displayName(for: app, bundleId: bid), iconPath: iconPath)
+            Self.notifyIfBlocked(bundleId: bid, appName: Self.displayName(for: app, bundleId: bid), iconPath: iconPath)
         }
     }
 
@@ -34,7 +33,7 @@ public final class LaunchObserver {
         return bundleId
     }
 
-    private func notifyIfBlocked(bundleId: String, appName: String, iconPath: String?) {
+    private static func notifyIfBlocked(bundleId: String, appName: String, iconPath: String?) {
         fetchStatus { status in
             guard let status, status.active, status.appliedAppBundleIds.contains(bundleId) else { return }
             DispatchQueue.main.async {
@@ -52,7 +51,7 @@ public final class LaunchObserver {
         return path
     }
 
-    private func fetchStatus(_ completion: @escaping (DaemonStatus?) -> Void) {
+    private static func fetchStatus(_ completion: @escaping (DaemonStatus?) -> Void) {
         let c = NSXPCConnection(machServiceName: XPCRequirements.daemonServiceName)
         c.remoteObjectInterface = NSXPCInterface(with: LockInDaemonProtocol.self)
         c.resume()
@@ -73,7 +72,8 @@ public final class LaunchObserver {
         _NSGetExecutablePath(nil, &size)
         var buf = [CChar](repeating: 0, count: Int(size))
         guard _NSGetExecutablePath(&buf, &size) == 0 else { return CommandLine.arguments[0] }
-        return URL(fileURLWithPath: String(cString: buf)).resolvingSymlinksInPath().path
+        let bytes = buf.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) }
+        return URL(fileURLWithPath: String(decoding: bytes, as: UTF8.self)).resolvingSymlinksInPath().path
     }
 
     private static func launchNotifier(appName: String, endsAt: Date?, iconPath: String?) {
