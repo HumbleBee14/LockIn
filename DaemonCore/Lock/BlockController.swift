@@ -207,15 +207,27 @@ public final class BlockController {
             return
         }
         let e = EffectiveBlock.resolve(snaps)
-        let want = EngineDesire.block(domains: Set(e.domains), allowlist: e.isAllowlist,
-                                      expand: first.appliedSettings.expandSubdomains)
-        // re-apply only when the desired set actually changed, OR the live block drifted (tamper self-heal)
+        let expand = EffectiveBlock.effectiveExpand(snaps)
+        let want = EngineDesire.block(domains: Set(e.domains), allowlist: e.isAllowlist, expand: expand)
+        // re-apply when the desired set changed, the live block drifted (tamper self-heal),
+        // or a prior write failed (.unknown never equals want → built-in retry)
         let drifted = !blocker.blockIntact(domains: e.domains, allowlist: e.isAllowlist,
-                                           expandSubdomains: first.appliedSettings.expandSubdomains)
+                                           expandSubdomains: expand)
         if want != desiredEngine || drifted {
             desiredEngine = want
             blocker.applyAsync(domains: e.domains, allowlist: e.isAllowlist,
-                               expandSubdomains: first.appliedSettings.expandSubdomains)
+                               expandSubdomains: expand) { [weak self] ok in
+                Task { @MainActor in
+                    guard let self else { return }
+                    if ok { self.engineDegraded = false }
+                    else {
+                        // fail-closed: enforcement never weakens early; retry next tick and surface it.
+                        // a late failure may stomp a fresher desiredEngine — harmless: one extra verified re-apply.
+                        self.engineDegraded = true
+                        self.desiredEngine = .unknown
+                    }
+                }
+            }
         }
         pushAppUnion(snaps)
         if !e.apps.isEmpty && !appBlocker.isMonitoring() {
@@ -300,7 +312,8 @@ public final class BlockController {
             appliedDomains: e.domains,
             appliedAppBundleIds: e.apps,
             nextTriggerDescription: nil,
-            pfApplied: blocker.isApplied())
+            pfApplied: blocker.isApplied(),
+            engineDegraded: engineDegraded)
     }
 
     // when the user is fully free: the latest endsAt across active snapshots (stable, won't jump between polls)
