@@ -19,6 +19,7 @@ struct StackLockSheet: View {
     @State private var window = ScheduleWindow.upcoming()
     @State private var starting = false
     @State private var failReason: String?
+    @State private var syncWarning: (summary: String, text: String)?
     @State private var showCreate = false
     @State private var newSetName = ""
     @State private var newSetDomains = ""
@@ -29,8 +30,14 @@ struct StackLockSheet: View {
     // invariant (Law 3): only blocklist sets are offered here, in both modes — an allowlist can never be armed while locked
     private var blocklistSets: [BlockSet] { store.config.blockSets.filter { $0.mode == .blocklist } }
     private var effectiveMinutes: Int { customMode ? Int(customMinutes.rounded()) : durationMinutes }
+    private var selectedDomainCount: Int {
+        var seen = Set<String>()
+        for set in blocklistSets where selectedIds.contains(set.id) { seen.formUnion(set.domains) }
+        return seen.count
+    }
+    // the daemon refuses an over-cap set at fire time with no way to say so from a schedule, so refuse here
     private var hasUsableSelection: Bool {
-        !selectedIds.isEmpty && blocklistSets.contains { selectedIds.contains($0.id) && !$0.domains.isEmpty }
+        selectedDomainCount > 0 && selectedDomainCount <= BlockLimits.maxActiveDomains
     }
     private var canStart: Bool {
         !starting && hasUsableSelection && (mode == .quick || window.isValid)
@@ -74,6 +81,13 @@ struct StackLockSheet: View {
             get: { failReason != nil }, set: { if !$0 { failReason = nil } })) {
             Button("OK", role: .cancel) {}
         } message: { Text(failReason ?? "") }
+        .alert("Saved, but not confirmed yet", isPresented: Binding(
+            get: { syncWarning != nil }, set: { if !$0 { syncWarning = nil } })) {
+            Button("OK", role: .cancel) {
+                if let syncWarning { onScheduled(syncWarning.summary) }
+                dismiss()
+            }
+        } message: { Text(syncWarning?.text ?? "") }
     }
 
     private var subtitle: String {
@@ -85,12 +99,14 @@ struct StackLockSheet: View {
         }
     }
 
+    // frozen while a start/save is in flight so the button label and alert title can't drift mid-request
     private var modeToggle: some View {
         HStack(spacing: Theme.Spacing.xs) {
             ForEach(Mode.allCases, id: \.self) { m in
                 chip(m.rawValue, selected: mode == m) { mode = m }
             }
         }
+        .disabled(starting)
     }
 
     private var setsSection: some View {
@@ -248,19 +264,34 @@ struct StackLockSheet: View {
     // the daemon's reconcile tick then arms it — immediately if the window is already open.
     private func saveSchedule() {
         let rule = window.rule(id: UUID().uuidString, blockSetIds: Array(selectedIds))
+        let summary = window.summary()   // describe what was saved, not what the picker shows after the await
+        // pressing Save twice must not arm two copies of the same rule (each would be its own snapshot)
+        if store.config.rules.contains(where: { Self.sameWindow($0, rule) }) {
+            onScheduled(summary)
+            dismiss()
+            return
+        }
         starting = true
         Task {
             store.addRule(rule)
             let accepted = await store.commit()
             starting = false
             if accepted {
-                onScheduled(window.summary())
+                onScheduled(summary)
                 dismiss()
             } else {
-                // no Schedule tab is reachable while locked, so never leave behind a rule the daemon never saw
-                store.removeRule(id: rule.id)
-                failReason = "The blocker didn’t accept the schedule. Try again in a moment."
+                // a false reply means the daemon didn't confirm, not that it didn't save (the reply itself can
+                // be lost). keep the rule: the next commit re-sends the whole config (spec D5), whereas removing
+                // it could orphan a copy only the daemon knows about.
+                syncWarning = (summary, "The schedule is saved in LockIn, but the blocker didn’t confirm it. "
+                    + "It syncs the next time LockIn talks to the blocker.")
             }
         }
+    }
+
+    private static func sameWindow(_ a: Rule, _ b: Rule) -> Bool {
+        Set(a.weekdays) == Set(b.weekdays) && Set(a.blockSetIds) == Set(b.blockSetIds)
+            && a.startHour == b.startHour && a.startMinute == b.startMinute
+            && a.endHour == b.endHour && a.endMinute == b.endMinute
     }
 }

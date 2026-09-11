@@ -33,26 +33,41 @@ final class ScheduleWindowTests: XCTestCase {
 
     func testUpcomingStartsAtNextFullHourForOneHourEveryDay() {
         let w = ScheduleWindow.upcoming(now: date(13, 20), calendar: cal)
-        XCTAssertEqual(w.weekdays, [1, 2, 3, 4, 5, 6, 7])
+        XCTAssertEqual(w.weekdays, ScheduleWindow.allWeekdays)
         XCTAssertEqual(w.start, date(14, 0))
         XCTAssertEqual(w.end, date(15, 0))
-        XCTAssertTrue(w.isValid)
+        XCTAssertTrue(w.isValid(calendar: cal))
     }
 
     func testEmptyWeekdaysIsInvalid() {
         let w = ScheduleWindow(weekdays: [], start: date(9, 0), end: date(10, 0))
-        XCTAssertFalse(w.isValid)
+        XCTAssertFalse(w.isValid(calendar: cal))
+    }
+
+    func testZeroLengthWindowIsInvalid() {
+        // Scheduler never arms start == end, so the editor must refuse it up front
+        let w = ScheduleWindow(weekdays: [1], start: date(14, 0), end: date(14, 0))
+        XCTAssertFalse(w.isValid(calendar: cal))
+        XCTAssertTrue(ScheduleWindow(weekdays: [1], start: date(14, 0), end: date(14, 1)).isValid(calendar: cal))
+        XCTAssertTrue(ScheduleWindow(weekdays: [1], start: date(22, 0), end: date(6, 0)).isValid(calendar: cal),
+                      "overnight windows are valid")
+    }
+
+    func testTimeRangeTextMatchesScheduleTabFormat() {
+        let rule = Rule(id: "r", weekdays: [1], startHour: 9, startMinute: 5, endHour: 17, endMinute: 30,
+                        blockSetIds: [], appBundleIds: [])
+        XCTAssertEqual(ScheduleWindow.timeRangeText(rule), "09:05 – 17:30")
     }
 
     func testSummaryNamesCommonDayGroups() {
         let s = date(9, 0), e = date(17, 30)
         XCTAssertEqual(ScheduleWindow(weekdays: [1, 2, 3, 4, 5, 6, 7], start: s, end: e).summary(calendar: cal),
-                       "Every day 09:00–17:30")
+                       "Every day 09:00 – 17:30")
         XCTAssertEqual(ScheduleWindow(weekdays: [1, 2, 3, 4, 5], start: s, end: e).summary(calendar: cal),
-                       "Weekdays 09:00–17:30")
+                       "Weekdays 09:00 – 17:30")
         XCTAssertEqual(ScheduleWindow(weekdays: [6, 7], start: s, end: e).summary(calendar: cal),
-                       "Weekends 09:00–17:30")
+                       "Weekends 09:00 – 17:30")
         XCTAssertEqual(ScheduleWindow(weekdays: [1, 3, 5], start: s, end: e).summary(calendar: cal),
-                       "Mon, Wed, Fri 09:00–17:30")
+                       "Mon, Wed, Fri 09:00 – 17:30")
     }
 }

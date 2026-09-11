@@ -8,7 +8,7 @@ struct ScheduleWindow: Equatable {
     var end: Date
 
     static let allWeekdays: Set<Int> = [1, 2, 3, 4, 5, 6, 7]
-    private static let shortNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    static let weekdayShortNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
     init(weekdays: Set<Int>, start: Date, end: Date) {
         self.weekdays = weekdays; self.start = start; self.end = end
@@ -28,7 +28,17 @@ struct ScheduleWindow: Equatable {
         return ScheduleWindow(weekdays: allWeekdays, start: nextHour, end: end)
     }
 
-    var isValid: Bool { !weekdays.isEmpty }
+    // a rule needs at least one day and a non-empty window: Scheduler treats start == end as never active,
+    // and from the lock screen there is no Schedule tab to notice a dead rule
+    func isValid(calendar: Calendar = .current) -> Bool {
+        !weekdays.isEmpty && minutes(of: start, calendar) != minutes(of: end, calendar)
+    }
+    var isValid: Bool { isValid(calendar: .current) }
+
+    private func minutes(of date: Date, _ calendar: Calendar) -> Int {
+        let c = calendar.dateComponents([.hour, .minute], from: date)
+        return (c.hour ?? 0) * 60 + (c.minute ?? 0)
+    }
 
     func rule(id: String, blockSetIds: [String], calendar: Calendar = .current) -> Rule {
         let sc = calendar.dateComponents([.hour, .minute], from: start)
@@ -39,12 +49,14 @@ struct ScheduleWindow: Equatable {
                     blockSetIds: blockSetIds, appBundleIds: [])
     }
 
-    // "Weekdays 09:00–17:30" — the confirmation shown after saving from the lock screen
+    // "09:00 – 17:30" — the one time-range formatter, shared with the Schedule tab's rule list
+    static func timeRangeText(_ rule: Rule) -> String {
+        String(format: "%02d:%02d – %02d:%02d", rule.startHour, rule.startMinute, rule.endHour, rule.endMinute)
+    }
+
+    // "Weekdays 09:00 – 17:30" — the confirmation shown after saving from the lock screen
     func summary(calendar: Calendar = .current) -> String {
-        let sc = calendar.dateComponents([.hour, .minute], from: start)
-        let ec = calendar.dateComponents([.hour, .minute], from: end)
-        let time = String(format: "%02d:%02d–%02d:%02d", sc.hour ?? 0, sc.minute ?? 0, ec.hour ?? 0, ec.minute ?? 0)
-        return "\(dayLabel) \(time)"
+        "\(dayLabel) \(Self.timeRangeText(rule(id: "", blockSetIds: [], calendar: calendar)))"
     }
 
     private var dayLabel: String {
@@ -52,7 +64,7 @@ struct ScheduleWindow: Equatable {
         case Self.allWeekdays: return "Every day"
         case [1, 2, 3, 4, 5]: return "Weekdays"
         case [6, 7]: return "Weekends"
-        default: return weekdays.sorted().map { Self.shortNames[$0 - 1] }.joined(separator: ", ")
+        default: return weekdays.sorted().map { Self.weekdayShortNames[$0 - 1] }.joined(separator: ", ")
         }
     }
 }

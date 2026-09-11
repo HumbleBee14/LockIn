@@ -11,7 +11,7 @@ struct ScheduleWindowPicker: View {
             VStack(alignment: .leading, spacing: Theme.Spacing.s) {
                 Text("Days").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.mistDim)
                 HStack(spacing: Theme.Spacing.s) {
-                    ForEach(1...7, id: \.self) { day in
+                    ForEach(ScheduleWindow.allWeekdays.sorted(), id: \.self) { day in
                         let on = window.weekdays.contains(day)
                         Button {
                             if on { window.weekdays.remove(day) } else { window.weekdays.insert(day) }

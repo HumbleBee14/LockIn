@@ -13,7 +13,7 @@ struct ScheduleGridView: View {
     @ObservedObject var gate: InstallGate
     @State private var editorTarget: EditorTarget?
 
-    private let weekdayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    private let weekdayLabels = ScheduleWindow.weekdayShortNames
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.l) {
@@ -132,9 +132,7 @@ struct ScheduleGridView: View {
         return names.isEmpty ? "—" : names.joined(separator: ", ")
     }
 
-    private func timeRange(_ r: Rule) -> String {
-        String(format: "%02d:%02d – %02d:%02d", r.startHour, r.startMinute, r.endHour, r.endMinute)
-    }
+    private func timeRange(_ r: Rule) -> String { ScheduleWindow.timeRangeText(r) }
 
     private struct Span: Identifiable { let id = UUID(); let start: Double; let fraction: Double }
 

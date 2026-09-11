@@ -23,7 +23,6 @@ struct RuleEditorView: View {
         }
     }
 
-
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.l) {
             Text(existing == nil ? "New Rule" : "Edit Rule")

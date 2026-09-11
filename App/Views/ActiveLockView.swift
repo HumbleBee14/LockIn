@@ -9,6 +9,7 @@ struct ActiveLockView: View {
     @State private var showingStackSheet = false
     @State private var appendFailReason: String?
     @State private var scheduledNote: String?
+    @State private var scheduledNoteTimer: Task<Void, Never>?
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -55,6 +56,7 @@ struct ActiveLockView: View {
         .padding(Theme.Spacing.xl)
         .background(Theme.inkBase)
         .onReceive(tick) { now = $0 }
+        .onDisappear { scheduledNoteTimer?.cancel() }
         .sheet(isPresented: $showingStackSheet) {
             StackLockSheet(store: store, statusModel: model, onScheduled: showScheduled)
         }
@@ -95,9 +97,11 @@ struct ActiveLockView: View {
     // confirm it briefly (the schedule itself lives in the Schedule tab once the lock ends)
     private func showScheduled(_ summary: String) {
         scheduledNote = "Scheduled · \(summary)"
-        Task {
+        scheduledNoteTimer?.cancel()   // a second save restarts the clock instead of being cut short by the first
+        scheduledNoteTimer = Task {
             try? await Task.sleep(nanoseconds: 8_000_000_000)
-            if scheduledNote == "Scheduled · \(summary)" { scheduledNote = nil }
+            guard !Task.isCancelled else { return }
+            scheduledNote = nil
         }
     }
 
