@@ -8,6 +8,8 @@ struct ActiveLockView: View {
     @State private var newDomain = ""
     @State private var showingStackSheet = false
     @State private var appendFailReason: String?
+    @State private var scheduledNote: String?
+    @State private var scheduledNoteTimer: Task<Void, Never>?
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -40,6 +42,10 @@ struct ActiveLockView: View {
                 .tint(Theme.ember)
             }
 
+            if let scheduledNote {
+                scheduledConfirmation(scheduledNote)
+            }
+
             if model.canAddDomains {
                 addDomainField
             }
@@ -50,8 +56,9 @@ struct ActiveLockView: View {
         .padding(Theme.Spacing.xl)
         .background(Theme.inkBase)
         .onReceive(tick) { now = $0 }
+        .onDisappear { scheduledNoteTimer?.cancel() }
         .sheet(isPresented: $showingStackSheet) {
-            StackLockSheet(store: store, statusModel: model)
+            StackLockSheet(store: store, statusModel: model, onScheduled: showScheduled)
         }
         .alert("Couldn’t add the site", isPresented: Binding(
             get: { appendFailReason != nil }, set: { if !$0 { appendFailReason = nil } })) {
@@ -84,6 +91,29 @@ struct ActiveLockView: View {
         let source = model.status?.source == "quick" ? "Quick Lock" : "Scheduled"
         let mode = (model.status?.isAllowlist ?? false) ? "Allow-only" : "Blocklist"
         return "\(source) · \(mode)"
+    }
+
+    // a rule saved from the sheet may not be due yet, so nothing else on this screen would change —
+    // confirm it briefly (the schedule itself lives in the Schedule tab once the lock ends)
+    private func showScheduled(_ summary: String) {
+        scheduledNote = "Scheduled · \(summary)"
+        scheduledNoteTimer?.cancel()   // a second save restarts the clock instead of being cut short by the first
+        scheduledNoteTimer = Task {
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            guard !Task.isCancelled else { return }
+            scheduledNote = nil
+        }
+    }
+
+    private func scheduledConfirmation(_ text: String) -> some View {
+        HStack(spacing: Theme.Spacing.s) {
+            Image(systemName: "calendar.badge.checkmark")
+                .font(.system(size: 12)).foregroundStyle(Theme.sage)
+            Text(text).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.mist)
+        }
+        .padding(.vertical, 6).padding(.horizontal, Theme.Spacing.m)
+        .background(Theme.sage.opacity(0.12))
+        .clipShape(Capsule())
     }
 
     private var addDomainField: some View {
