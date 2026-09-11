@@ -6,30 +6,19 @@ struct RuleEditorView: View {
     let existing: Rule?
     let onDone: () -> Void
 
-    @State private var weekdays: Set<Int>
-    @State private var start: Date
-    @State private var end: Date
+    @State private var window: ScheduleWindow
     @State private var selectedIds: Set<String>
-
-    private let weekdayLabels = ["M", "T", "W", "T", "F", "S", "S"]
 
     init(store: ScheduleStore, gate: InstallGate, existing: Rule?, onDone: @escaping () -> Void) {
         self.store = store
         self.gate = gate
         self.existing = existing
         self.onDone = onDone
-        let cal = Calendar.current
         if let r = existing {
-            _weekdays = State(initialValue: Set(r.weekdays))
-            _start = State(initialValue: cal.date(bySettingHour: r.startHour, minute: r.startMinute, second: 0, of: Date()) ?? Date())
-            _end = State(initialValue: cal.date(bySettingHour: r.endHour, minute: r.endMinute, second: 0, of: Date()) ?? Date())
+            _window = State(initialValue: ScheduleWindow(rule: r))
             _selectedIds = State(initialValue: Set(r.blockSetIds))
         } else {
-            _weekdays = State(initialValue: [1, 2, 3, 4, 5, 6, 7])
-            let nextHour = cal.date(byAdding: .hour, value: 1,
-                to: cal.date(bySettingHour: cal.component(.hour, from: Date()), minute: 0, second: 0, of: Date()) ?? Date()) ?? Date()
-            _start = State(initialValue: nextHour)
-            _end = State(initialValue: cal.date(byAdding: .hour, value: 1, to: nextHour) ?? nextHour)
+            _window = State(initialValue: ScheduleWindow.upcoming())
             _selectedIds = State(initialValue: [])
         }
     }
@@ -40,31 +29,7 @@ struct RuleEditorView: View {
             Text(existing == nil ? "New Rule" : "Edit Rule")
                 .font(Theme.displayFont(20, .bold))
 
-            VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-                Text("Days").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.mistDim)
-                HStack(spacing: Theme.Spacing.s) {
-                    ForEach(1...7, id: \.self) { day in
-                        let on = weekdays.contains(day)
-                        Button {
-                            if on { weekdays.remove(day) } else { weekdays.insert(day) }
-                        } label: {
-                            Text(weekdayLabels[day - 1])
-                                .font(.system(size: 13, weight: .semibold))
-                                .frame(width: 34, height: 34)
-                                .background(on ? Theme.ember : Theme.inkRaised)
-                                .foregroundStyle(on ? .white : Theme.mistDim)
-                                .clipShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-
-            HStack(spacing: Theme.Spacing.xl) {
-                DatePicker("Start", selection: $start, displayedComponents: .hourAndMinute)
-                DatePicker("End", selection: $end, displayedComponents: .hourAndMinute)
-            }
-            .datePickerStyle(.field)
+            ScheduleWindowPicker(window: $window)
 
             VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
                 Text("Block sets").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.mistDim)
@@ -77,7 +42,7 @@ struct RuleEditorView: View {
                 Button("Save") { save() }
                     .buttonStyle(.borderedProminent)
                     .tint(Theme.ember)
-                    .disabled(weekdays.isEmpty || selectedIds.isEmpty)
+                    .disabled(!window.isValid || selectedIds.isEmpty)
             }
         }
         .padding(Theme.Spacing.l)
@@ -85,14 +50,7 @@ struct RuleEditorView: View {
     }
 
     private func save() {
-        let cal = Calendar.current
-        let sc = cal.dateComponents([.hour, .minute], from: start)
-        let ec = cal.dateComponents([.hour, .minute], from: end)
-        let rule = Rule(id: existing?.id ?? UUID().uuidString,
-                        weekdays: weekdays.sorted(),
-                        startHour: sc.hour ?? 22, startMinute: sc.minute ?? 0,
-                        endHour: ec.hour ?? 7, endMinute: ec.minute ?? 0,
-                        blockSetIds: Array(selectedIds), appBundleIds: [])
+        let rule = window.rule(id: existing?.id ?? UUID().uuidString, blockSetIds: Array(selectedIds))
         if existing != nil { store.removeRule(id: rule.id) }
         store.addRule(rule)
         onDone()
