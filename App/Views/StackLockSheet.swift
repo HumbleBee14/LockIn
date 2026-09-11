@@ -1,16 +1,22 @@
 import SwiftUI
 
 // the ONLY surface reachable while locked besides the lock screen itself: pick existing blocklist
-// sets or create a brand-new one (create-only — existing sets stay untouchable during any lock)
+// sets or create a brand-new one (create-only — existing sets stay untouchable during any lock),
+// then either stack a quick lock now or save a repeating schedule rule for those sets.
 struct StackLockSheet: View {
+    enum Mode: String, CaseIterable { case quick = "Quick lock", schedule = "Schedule" }
+
     @ObservedObject var store: ScheduleStore
     @ObservedObject var statusModel: StatusViewModel
+    var onScheduled: (String) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
 
+    @State private var mode: Mode = .quick
     @State private var selectedIds: Set<String> = []
     @State private var durationMinutes = 60
     @State private var customMode = false
     @State private var customMinutes: Double = 60
+    @State private var window = ScheduleWindow.upcoming()
     @State private var starting = false
     @State private var failReason: String?
     @State private var showCreate = false
@@ -20,11 +26,14 @@ struct StackLockSheet: View {
     private let presets: [(String, Int)] = [("30 min", 30), ("1 hour", 60), ("2 hours", 120), ("4 hours", 240)]
     private let maxMinutes = 22.0 * 60
 
+    // invariant (Law 3): only blocklist sets are offered here, in both modes — an allowlist can never be armed while locked
     private var blocklistSets: [BlockSet] { store.config.blockSets.filter { $0.mode == .blocklist } }
     private var effectiveMinutes: Int { customMode ? Int(customMinutes.rounded()) : durationMinutes }
+    private var hasUsableSelection: Bool {
+        !selectedIds.isEmpty && blocklistSets.contains { selectedIds.contains($0.id) && !$0.domains.isEmpty }
+    }
     private var canStart: Bool {
-        !starting && !selectedIds.isEmpty
-            && blocklistSets.contains { selectedIds.contains($0.id) && !$0.domains.isEmpty }
+        !starting && hasUsableSelection && (mode == .quick || window.isValid)
     }
 
     var body: some View {
@@ -44,9 +53,49 @@ struct StackLockSheet: View {
                 .buttonStyle(.plain)
                 .help("Close")
             }
-            Text("Stacks on top of what's already locked — it can only block more, and can't be turned off until it ends.")
-                .font(.system(size: 12)).foregroundStyle(Theme.mistDim)
 
+            modeToggle
+            Text(subtitle)
+                .font(.system(size: 12)).foregroundStyle(Theme.mistDim)
+                .fixedSize(horizontal: false, vertical: true)
+
+            switch mode {
+            case .quick: durationPicker
+            case .schedule: ScheduleWindowPicker(window: $window)
+            }
+
+            setsSection
+            startButton
+        }
+        .padding(Theme.Spacing.l)
+        .frame(width: 460)
+        .onAppear { showCreate = blocklistSets.isEmpty }
+        .alert(mode == .quick ? "Couldn’t start the lock" : "Couldn’t save the schedule", isPresented: Binding(
+            get: { failReason != nil }, set: { if !$0 { failReason = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: { Text(failReason ?? "") }
+    }
+
+    private var subtitle: String {
+        switch mode {
+        case .quick:
+            return "Stacks on top of what's already locked — it can only block more, and can't be turned off until it ends."
+        case .schedule:
+            return "Saves a repeating schedule. If its window is open right now it starts within a few seconds, stacked on top of what's already locked."
+        }
+    }
+
+    private var modeToggle: some View {
+        HStack(spacing: Theme.Spacing.xs) {
+            ForEach(Mode.allCases, id: \.self) { m in
+                chip(m.rawValue, selected: mode == m) { mode = m }
+            }
+        }
+    }
+
+    private var setsSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+            Text("What to block").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.mistDim)
             if blocklistSets.isEmpty || showCreate {
                 createForm
             }
@@ -57,17 +106,7 @@ struct StackLockSheet: View {
                         .buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(Theme.ember)
                 }
             }
-
-            durationPicker
-            startButton
         }
-        .padding(Theme.Spacing.l)
-        .frame(width: 460)
-        .onAppear { showCreate = blocklistSets.isEmpty }
-        .alert("Couldn’t start the lock", isPresented: Binding(
-            get: { failReason != nil }, set: { if !$0 { failReason = nil } })) {
-            Button("OK", role: .cancel) {}
-        } message: { Text(failReason ?? "") }
     }
 
     private var createForm: some View {
@@ -168,11 +207,21 @@ struct StackLockSheet: View {
         .buttonStyle(.plain)
     }
 
+    private var buttonTitle: String {
+        switch mode {
+        case .quick: return starting ? "Starting…" : "Start Lock"
+        case .schedule: return starting ? "Saving…" : "Save Schedule"
+        }
+    }
+
     private var startButton: some View {
         Button {
-            start()
+            switch mode {
+            case .quick: start()
+            case .schedule: saveSchedule()
+            }
         } label: {
-            Text(starting ? "Starting…" : "Start Lock")
+            Text(buttonTitle)
                 .font(.system(size: 14, weight: .semibold))
                 .frame(maxWidth: .infinity).padding(.vertical, Theme.Spacing.m)
                 .background(canStart ? Theme.ember : Theme.inkRaised)
@@ -192,6 +241,26 @@ struct StackLockSheet: View {
             await statusModel.refresh()
             starting = false
             if let reason { failReason = reason } else { dismiss() }
+        }
+    }
+
+    // same path the Schedule tab takes: a plain Rule in config, pushed with the regular commit.
+    // the daemon's reconcile tick then arms it — immediately if the window is already open.
+    private func saveSchedule() {
+        let rule = window.rule(id: UUID().uuidString, blockSetIds: Array(selectedIds))
+        starting = true
+        Task {
+            store.addRule(rule)
+            let accepted = await store.commit()
+            starting = false
+            if accepted {
+                onScheduled(window.summary())
+                dismiss()
+            } else {
+                // no Schedule tab is reachable while locked, so never leave behind a rule the daemon never saw
+                store.removeRule(id: rule.id)
+                failReason = "The blocker didn’t accept the schedule. Try again in a moment."
+            }
         }
     }
 }
