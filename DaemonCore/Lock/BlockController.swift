@@ -35,9 +35,9 @@ public final class BlockController {
     private func now() -> Date { nowProvider.now() }
 
     func registerSchedule(_ config: ScheduleConfig) -> Bool {
-        // invariant: never mutate an active snapshot; edits affect only rules not yet started
-        try? configStore.save(config)
-        return true
+        // invariant: never mutate an active snapshot; edits affect only rules not yet started.
+        // report the real outcome — the app must not confirm a schedule the daemon never persisted
+        do { try configStore.save(config); return true } catch { return false }
     }
 
     // shared merge/dedup/cap used by quick lock and scheduled snapshots so their logic can't diverge
@@ -262,17 +262,29 @@ public final class BlockController {
         }
     }
 
+    // due rules the last tick could not arm because the combined lock would exceed the domain cap.
+    // recomputed every tick, so it clears on its own once enough locks end and the rule arms.
+    private(set) var skippedDueRuleTitles: [String] = []
+
     private func addNewlyDueRules(into snaps: inout [LockSnapshot], calendar: Calendar, nowUTC: Date) {
         // invariant: config is read ONLY to detect a NEW rule starting; never to mutate a live snapshot.
         // no engine call here — syncEngineToDesiredState applies the union once, off-thread.
         let config = loadConfig()
+        var skipped: [String] = []
+        var union = Set(snaps.flatMap(\.appliedDomains))
         for rule in config.rules {
             guard !snaps.contains(where: { $0.id == rule.id }) else { continue }
             guard let end = Scheduler.activeWindowEndPublic(rule, at: nowUTC, calendar: calendar) else { continue }
             guard let r = resolveSets(rule.blockSetIds, in: config) else { continue }
-            guard r.domains.count <= BlockLimits.maxActiveDomains else { continue }
+            // invariant: never silently truncate — same union cap as a stacked quick lock. a rule that would
+            // push the live union past the hosts limit waits (surfaced) until enough locks end; the locks
+            // already running are untouched either way.
+            let grown = union.union(r.domains)
+            guard grown.count <= BlockLimits.maxActiveDomains else { skipped.append(r.title); continue }
+            union = grown
             snaps.append(freshSnapshot(id: rule.id, mode: .scheduled, endsAt: end, r: r, settings: config.settings))
         }
+        skippedDueRuleTitles = skipped
     }
 
     private func freshSnapshot(id: String, mode: BlockMode, endsAt: Date,
@@ -354,7 +366,8 @@ public final class BlockController {
             pfApplied: blocker.isApplied(),
             locks: locks,
             appendTargetBlockSetId: appendTarget,
-            engineDegraded: engineDegraded)
+            engineDegraded: engineDegraded,
+            skippedScheduleTitles: skippedDueRuleTitles.isEmpty ? nil : skippedDueRuleTitles)
     }
 
     // when the user is fully free: the latest endsAt across active snapshots (stable, won't jump between polls)

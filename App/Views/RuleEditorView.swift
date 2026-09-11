@@ -50,8 +50,13 @@ struct RuleEditorView: View {
 
     private func save() {
         let rule = window.rule(id: existing?.id ?? UUID().uuidString, blockSetIds: Array(selectedIds))
-        if existing != nil { store.removeRule(id: rule.id) }
-        store.addRule(rule)
+        // an identical rule already covers this window — adding another would only arm a duplicate snapshot
+        if store.config.rules.contains(where: { $0.id != rule.id && $0.sameWindow(as: rule) }) {
+            if existing != nil { store.removeRule(id: rule.id) }
+        } else {
+            if existing != nil { store.removeRule(id: rule.id) }
+            store.addRule(rule)
+        }
         onDone()
         // arming a schedule needs the engine installed; gate the commit that reaches the daemon
         gate.require { _ = await store.commit() }

@@ -31,11 +31,13 @@ public struct DaemonStatus: Codable, Equatable, Sendable {
     public let locks: [ActiveLockInfo]?          // per-lock detail; nil from old daemons
     public let appendTargetBlockSetId: String?   // set the lock-screen "add a site" persists into
     public let engineDegraded: Bool?             // a live-lock engine write keeps failing (over-block direction)
+    public let skippedScheduleTitles: [String]?  // due rules the tick could not arm without exceeding the union cap
 
     public init(active: Bool, source: String?, blockSetId: String? = nil, blockSetTitle: String?, isAllowlist: Bool,
                 endsAt: Date?, appliedDomains: [String], appliedAppBundleIds: [String] = [],
                 nextTriggerDescription: String?, pfApplied: Bool = false, cleanupFailed: Bool = false,
-                locks: [ActiveLockInfo]? = nil, appendTargetBlockSetId: String? = nil, engineDegraded: Bool? = nil) {
+                locks: [ActiveLockInfo]? = nil, appendTargetBlockSetId: String? = nil, engineDegraded: Bool? = nil,
+                skippedScheduleTitles: [String]? = nil) {
         self.active = active
         self.source = source
         self.blockSetId = blockSetId
@@ -50,5 +52,6 @@ public struct DaemonStatus: Codable, Equatable, Sendable {
         self.locks = locks
         self.appendTargetBlockSetId = appendTargetBlockSetId
         self.engineDegraded = engineDegraded
+        self.skippedScheduleTitles = skippedScheduleTitles
     }
 }

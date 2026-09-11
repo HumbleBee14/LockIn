@@ -46,6 +46,13 @@ struct ActiveLockView: View {
                 scheduledConfirmation(scheduledNote)
             }
 
+            if let skipped = model.status?.skippedScheduleTitles, !skipped.isEmpty {
+                DisclosureCallout(icon: "exclamationmark.triangle.fill", tint: Theme.amber,
+                    title: "Waiting to start: \(skipped.joined(separator: ", "))",
+                    message: "Together with what's already locked it would pass the \(BlockLimits.maxActiveDomains) site limit. It starts automatically once enough locks end.")
+                    .frame(maxWidth: 420)
+            }
+
             if model.canAddDomains {
                 addDomainField
             }
