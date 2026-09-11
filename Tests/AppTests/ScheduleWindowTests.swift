@@ -70,4 +70,14 @@ final class ScheduleWindowTests: XCTestCase {
         XCTAssertEqual(ScheduleWindow(weekdays: [1, 3, 5], start: s, end: e).summary(calendar: cal),
                        "Mon, Wed, Fri 09:00 – 17:30")
     }
+
+    func testSameWindowIgnoresIdAndOrdering() {
+        let a = Rule(id: "1", weekdays: [1, 3], startHour: 9, startMinute: 0, endHour: 17, endMinute: 0,
+                     blockSetIds: ["s", "a"], appBundleIds: [])
+        let b = Rule(id: "2", weekdays: [3, 1], startHour: 9, startMinute: 0, endHour: 17, endMinute: 0,
+                     blockSetIds: ["a", "s"], appBundleIds: [])
+        var c = a; c.endMinute = 30
+        XCTAssertTrue(a.sameWindow(as: b))
+        XCTAssertFalse(a.sameWindow(as: c))
+    }
 }

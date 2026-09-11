@@ -13,6 +13,7 @@ final class DaemonStatusCompatTests: XCTestCase {
         XCTAssertNil(s.locks)
         XCTAssertNil(s.appendTargetBlockSetId)
         XCTAssertNil(s.engineDegraded)
+        XCTAssertNil(s.skippedScheduleTitles)
     }
 
     func testRoundTripsNewFields() throws {
@@ -22,8 +23,10 @@ final class DaemonStatusCompatTests: XCTestCase {
         let s = DaemonStatus(active: true, source: "quick", blockSetTitle: "Social",
                              isAllowlist: false, endsAt: Date(), appliedDomains: ["x.com"],
                              nextTriggerDescription: nil, locks: [lock],
-                             appendTargetBlockSetId: "b1", engineDegraded: false)
+                             appendTargetBlockSetId: "b1", engineDegraded: false,
+                             skippedScheduleTitles: ["Adult"])
         let back = try JSONDecoder().decode(DaemonStatus.self, from: JSONEncoder().encode(s))
+        XCTAssertEqual(back.skippedScheduleTitles, ["Adult"])
         XCTAssertEqual(back.locks, [lock])
         XCTAssertEqual(back.appendTargetBlockSetId, "b1")
         XCTAssertEqual(back.engineDegraded, false)

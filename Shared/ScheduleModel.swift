@@ -62,6 +62,15 @@ struct Rule: Codable, Equatable {
     }
 }
 
+extension Rule {
+    // same days, same times, same sets — a second copy would only arm a duplicate snapshot
+    func sameWindow(as other: Rule) -> Bool {
+        Set(weekdays) == Set(other.weekdays) && Set(blockSetIds) == Set(other.blockSetIds)
+            && startHour == other.startHour && startMinute == other.startMinute
+            && endHour == other.endHour && endMinute == other.endMinute
+    }
+}
+
 struct SettingsConfig: Codable, Equatable {
     var expandSubdomains: Bool = false
 }

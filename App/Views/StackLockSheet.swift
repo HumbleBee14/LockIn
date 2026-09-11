@@ -266,7 +266,7 @@ struct StackLockSheet: View {
         let rule = window.rule(id: UUID().uuidString, blockSetIds: Array(selectedIds))
         let summary = window.summary()   // describe what was saved, not what the picker shows after the await
         // pressing Save twice must not arm two copies of the same rule (each would be its own snapshot)
-        if store.config.rules.contains(where: { Self.sameWindow($0, rule) }) {
+        if store.config.rules.contains(where: { $0.sameWindow(as: rule) }) {
             onScheduled(summary)
             dismiss()
             return
@@ -287,11 +287,5 @@ struct StackLockSheet: View {
                     + "It syncs the next time LockIn talks to the blocker.")
             }
         }
-    }
-
-    private static func sameWindow(_ a: Rule, _ b: Rule) -> Bool {
-        Set(a.weekdays) == Set(b.weekdays) && Set(a.blockSetIds) == Set(b.blockSetIds)
-            && a.startHour == b.startHour && a.startMinute == b.startMinute
-            && a.endHour == b.endHour && a.endMinute == b.endMinute
     }
 }
