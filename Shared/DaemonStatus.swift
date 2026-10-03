@@ -8,12 +8,16 @@ public struct ActiveLockInfo: Codable, Equatable, Sendable {
     public let isAllowlist: Bool
     public let blockSetId: String
     public let domainCount: Int       // that snapshot's frozen domain count
+    public let blockSetIds: [String]? // every set in the lock; nil from an old daemon (use blockSetId)
 
     public init(id: String, title: String, source: String, endsAt: Date,
-                isAllowlist: Bool, blockSetId: String, domainCount: Int) {
+                isAllowlist: Bool, blockSetId: String, domainCount: Int, blockSetIds: [String]? = nil) {
         self.id = id; self.title = title; self.source = source; self.endsAt = endsAt
         self.isAllowlist = isAllowlist; self.blockSetId = blockSetId; self.domainCount = domainCount
+        self.blockSetIds = blockSetIds
     }
+
+    public var allBlockSetIds: [String] { blockSetIds ?? [blockSetId] }
 }
 
 public struct DaemonStatus: Codable, Equatable, Sendable {

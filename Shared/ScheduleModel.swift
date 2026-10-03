@@ -2,7 +2,8 @@ import Foundation
 
 enum BlockLimits {
     static let maxActiveDomains = 100_000   // cap on stored/added domains per active block
-    static let maxHostsEntries = 150_000    // hard ceiling on lines written to /etc/hosts
+    // hard ceiling on lines written to /etc/hosts: each site writes 2 lines (apex + www), so a full lock fits
+    static let maxHostsEntries = maxActiveDomains * 2
     // user-initiated stacking cap only — reconcile's scheduled fires are never refused (spec D1)
     public static let maxActiveLocks = 10
 }

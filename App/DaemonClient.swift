@@ -42,6 +42,28 @@ final class DaemonClient: Sendable {
         }
     }
 
+    enum Liveness { case current, older, unreachable }
+
+    // tells "running but older" apart from "not answering" — ping() alone reads both as dead
+    func liveness() async -> Liveness {
+        await withCheckedContinuation { cont in
+            let c = connection()
+            let proxy = c.remoteObjectProxyWithErrorHandler { _ in cont.resume(returning: .unreachable) }
+                as? LockInDaemonProtocol
+            proxy?.getVersion { version in cont.resume(returning: version == LockInVersion.current ? .current : .older) }
+        }
+    }
+
+    // the alive flag for register/unregister decisions. invariant: an older blocker that still answers is
+    // never unregistered while a lock is held or unknown — it's swapped only once confirmed unlocked
+    func aliveForRegistration() async -> Bool {
+        switch await liveness() {
+        case .current: return true
+        case .unreachable: return false
+        case .older: return await status()?.active != false
+        }
+    }
+
     func status() async -> DaemonStatus? {
         if case .answered(let s) = await statusResult() { return s }
         return nil
@@ -85,6 +107,20 @@ final class DaemonClient: Sendable {
             } as? LockInDaemonProtocol
             proxy?.appendDomainsReturningReason(domains) { reason in cont.resume(returning: reason) }
         }
+    }
+
+    // blocks into the lock holding that set; endsAt = when that lock ends. a daemon from before this call
+    // drops the connection, so fall back to the old call (longest-lived lock, end unknown) rather than fail
+    func appendDomainsReason(_ domains: [String], toBlockSet id: String) async -> (reason: String?, endsAt: Date?) {
+        if await liveness() == .older { return (await appendDomainsReason(domains), nil) }
+        let answer: (String?, Date?)? = await withCheckedContinuation { cont in
+            let c = connection()
+            let proxy = c.remoteObjectProxyWithErrorHandler { _ in cont.resume(returning: nil) }
+                as? LockInDaemonProtocol
+            proxy?.appendDomains(domains, toBlockSetId: id) { reason, endsAt in cont.resume(returning: (reason, endsAt)) }
+        }
+        if let answer { return answer }
+        return (await appendDomainsReason(domains), nil)
     }
 
     enum ResetResult { case done, failed, noHelper }

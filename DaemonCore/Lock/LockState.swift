@@ -13,6 +13,9 @@ struct LockSnapshot: Codable, Equatable {
     var appliedSettings: SettingsConfig
     var blockSetId: String
     var blockSetTitle: String
+    var blockSetIds: [String]? = nil   // every set the lock was started with; nil in pre-1.6 snapshots
+
+    var allBlockSetIds: [String] { blockSetIds ?? [blockSetId] }
 }
 
 final class LockSnapshotStore {

@@ -8,6 +8,7 @@ struct StackLockSheet: View {
 
     @ObservedObject var store: ScheduleStore
     @ObservedObject var statusModel: StatusViewModel
+    var startCreating = false   // opened from the lock screen's "New block set…": show the create form first
     var onScheduled: (String) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
 
@@ -76,7 +77,7 @@ struct StackLockSheet: View {
         }
         .padding(Theme.Spacing.l)
         .frame(width: 460)
-        .onAppear { showCreate = blocklistSets.isEmpty }
+        .onAppear { showCreate = startCreating || blocklistSets.isEmpty }
         .alert(mode == .quick ? "Couldn’t start the lock" : "Couldn’t save the schedule", isPresented: Binding(
             get: { failReason != nil }, set: { if !$0 { failReason = nil } })) {
             Button("OK", role: .cancel) {}

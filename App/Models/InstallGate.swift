@@ -18,14 +18,14 @@ final class InstallGate: ObservableObject {
     // approve the required website-blocking helper; the poll resolves the pending action once it's live
     func approveDaemon() async {
         installer.lastError = nil
-        let alive = await client.ping()
+        let alive = await client.aliveForRegistration()
         installer.registerDaemon(alive: alive)
     }
 
     // one Approve covers both helpers — the OS background-activity toggle is per-app, not per-helper
     func approveAll() async {
         installer.lastError = nil
-        let alive = await client.ping()
+        let alive = await client.aliveForRegistration()
         installer.approveAll(daemonAlive: alive)
     }
 

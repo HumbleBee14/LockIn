@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 struct ActiveLockView: View {
     @ObservedObject var model: StatusViewModel
@@ -8,8 +9,12 @@ struct ActiveLockView: View {
     @State private var newDomain = ""
     @State private var showingStackSheet = false
     @State private var appendFailReason: String?
-    @State private var scheduledNote: String?
-    @State private var scheduledNoteTimer: Task<Void, Never>?
+    @State private var appendWarning: String?
+    @State private var note: (icon: String, text: String)?
+    @State private var noteTimer: Task<Void, Never>?
+    @State private var targetSetId: String?
+    @State private var adding = false
+    @State private var stackSheetCreating = false
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -34,6 +39,7 @@ struct ActiveLockView: View {
 
             if model.canStackLock {
                 Button {
+                    stackSheetCreating = false
                     showingStackSheet = true
                 } label: {
                     Label("New Lock", systemImage: "plus")
@@ -42,8 +48,8 @@ struct ActiveLockView: View {
                 .tint(Theme.ember)
             }
 
-            if let scheduledNote {
-                scheduledConfirmation(scheduledNote)
+            if let note {
+                confirmation(icon: note.icon, text: note.text)
             }
 
             if let skipped = model.status?.skippedScheduleTitles, !skipped.isEmpty {
@@ -63,14 +69,19 @@ struct ActiveLockView: View {
         .padding(Theme.Spacing.xl)
         .background(Theme.inkBase)
         .onReceive(tick) { now = $0 }
-        .onDisappear { scheduledNoteTimer?.cancel() }
+        .onDisappear { noteTimer?.cancel() }
         .sheet(isPresented: $showingStackSheet) {
-            StackLockSheet(store: store, statusModel: model, onScheduled: showScheduled)
+            StackLockSheet(store: store, statusModel: model, startCreating: stackSheetCreating,
+                           onScheduled: showScheduled)
         }
         .alert("Couldn’t add the site", isPresented: Binding(
             get: { appendFailReason != nil }, set: { if !$0 { appendFailReason = nil } })) {
             Button("OK", role: .cancel) {}
         } message: { Text(appendFailReason ?? "") }
+        .alert("Added, but not fully saved", isPresented: Binding(
+            get: { appendWarning != nil }, set: { if !$0 { appendWarning = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: { Text(appendWarning ?? "") }
     }
 
     // both layers live = solid green; hosts-only (pf not confirmed) = amber. internal signal, no label.
@@ -103,24 +114,42 @@ struct ActiveLockView: View {
     // a rule saved from the sheet may not be due yet, so nothing else on this screen would change —
     // confirm it briefly (the schedule itself lives in the Schedule tab once the lock ends)
     private func showScheduled(_ summary: String) {
-        scheduledNote = "Scheduled · \(summary)"
-        scheduledNoteTimer?.cancel()   // a second save restarts the clock instead of being cut short by the first
-        scheduledNoteTimer = Task {
+        showNote(icon: "calendar.badge.checkmark", text: "Scheduled · \(summary)")
+    }
+
+    private func showNote(icon: String, text: String) {
+        note = (icon, text)
+        noteTimer?.cancel()   // a second note restarts the clock instead of being cut short by the first
+        noteTimer = Task {
             try? await Task.sleep(nanoseconds: 8_000_000_000)
             guard !Task.isCancelled else { return }
-            scheduledNote = nil
+            note = nil
         }
     }
 
-    private func scheduledConfirmation(_ text: String) -> some View {
+    private func confirmation(icon: String, text: String) -> some View {
         HStack(spacing: Theme.Spacing.s) {
-            Image(systemName: "calendar.badge.checkmark")
+            Image(systemName: icon)
                 .font(.system(size: 12)).foregroundStyle(Theme.sage)
             Text(text).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.mist)
         }
         .padding(.vertical, 6).padding(.horizontal, Theme.Spacing.m)
         .background(Theme.sage.opacity(0.12))
         .clipShape(Capsule())
+    }
+
+    // invariant (Law 3): only blocklist sets can receive a site mid-lock — adding to an allowlist would unblock it
+    private var blocklistSets: [BlockSet] { store.config.blockSets.filter { $0.mode == .blocklist } }
+    private var lockedSetIds: Set<String> { Set(model.activeBlocklistLocks.flatMap(\.allBlockSetIds)) }
+
+    // the user's pick, else the set the daemon would have used anyway, else any locked set
+    private var targetSet: BlockSet? {
+        let ids = [targetSetId, model.status?.appendTargetBlockSetId].compactMap { $0 }
+        for id in ids { if let set = blocklistSets.first(where: { $0.id == id }) { return set } }
+        return blocklistSets.first { lockedSetIds.contains($0.id) } ?? blocklistSets.first
+    }
+    private var canAdd: Bool {
+        !adding && targetSet != nil && !newDomain.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     private var addDomainField: some View {
@@ -132,19 +161,67 @@ struct ActiveLockView: View {
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { add() }
                 Button("Add") { add() }.tint(Theme.ember)
-                    .disabled(newDomain.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(!canAdd)
             }
+            targetPicker
         }
         .frame(maxWidth: 420)
     }
 
+    // existing sets can only grow here; making a new set routes to the same sheet as "+ New Lock"
+    private var targetPicker: some View {
+        HStack(spacing: Theme.Spacing.s) {
+            Text("Add to").font(.system(size: 11)).foregroundStyle(Theme.mistDim)
+            Menu {
+                let locked = blocklistSets.filter { lockedSetIds.contains($0.id) }
+                let others = blocklistSets.filter { !lockedSetIds.contains($0.id) }
+                if !locked.isEmpty {
+                    SwiftUI.Section("Locked now") { ForEach(locked, id: \.id) { targetOption($0) } }
+                }
+                if !others.isEmpty {
+                    SwiftUI.Section("Other block sets") { ForEach(others, id: \.id) { targetOption($0) } }
+                }
+                if model.canStackLock {
+                    Divider()
+                    Button("New block set…") {
+                        stackSheetCreating = true
+                        showingStackSheet = true
+                    }
+                }
+            } label: {
+                Text(targetSet?.name ?? "Choose a block set")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .tint(Theme.ember)
+            Spacer()
+        }
+    }
+
+    private func targetOption(_ set: BlockSet) -> some View {
+        Button {
+            targetSetId = set.id
+        } label: {
+            if set.id == targetSet?.id { Label(set.name, systemImage: "checkmark") } else { Text(set.name) }
+        }
+    }
+
     private func add() {
+        guard canAdd, let set = targetSet else { return }
         let parsed = ScheduleStore.parseDomainList(newDomain)
         guard !parsed.isEmpty else { return }
-        newDomain = ""
+        adding = true
         Task {
-            if let reason = await model.addDomains(parsed, persistingTo: store) {
+            defer { adding = false }
+            switch await model.addDomains(parsed, toBlockSet: set.id, persistingTo: store) {
+            case .failed(let reason):
                 appendFailReason = reason
+            case .added(let until, let warning):
+                newDomain = ""
+                targetSetId = set.id
+                let end = until.map { " · blocked until \(model.endTimeString($0))" } ?? ""
+                showNote(icon: "checkmark.circle", text: "Added to \(set.name)\(end)")
+                appendWarning = warning
             }
         }
     }
@@ -198,3 +275,28 @@ struct StatusRing: View {
         }
     }
 }
+
+#if DEBUG
+// design-time only: fake locks and sets, no daemon involved (an Add here just fails to reach the blocker)
+#Preview("Lock screen · stacked") {
+    let sets = [
+        BlockSet(id: "ad", name: "AD+", domains: ["ads.example"], appBundleIds: [], mode: .blocklist),
+        BlockSet(id: "social", name: "Social", domains: ["x.com"], appBundleIds: [], mode: .blocklist),
+        BlockSet(id: "random", name: "Random", domains: ["reddit.com"], appBundleIds: [], mode: .blocklist),
+    ]
+    let client = DaemonClient()
+    let store = ScheduleStore(client: client, config: ScheduleConfig(rules: [], blockSets: sets))
+    let model = StatusViewModel(client: client)
+    let locks = [
+        ActiveLockInfo(id: "q1", title: "AD+", source: "scheduled", endsAt: Date().addingTimeInterval(5 * 3600),
+                       isAllowlist: false, blockSetId: "ad", domainCount: 1),
+        ActiveLockInfo(id: "q2", title: "Social", source: "quick", endsAt: Date().addingTimeInterval(3600),
+                       isAllowlist: false, blockSetId: "social", domainCount: 1),
+    ]
+    model.status = DaemonStatus(active: true, source: "scheduled", blockSetId: "ad", blockSetTitle: "AD+ +1",
+                                isAllowlist: false, endsAt: locks[0].endsAt, appliedDomains: [],
+                                nextTriggerDescription: nil, pfApplied: true, locks: locks,
+                                appendTargetBlockSetId: "ad")
+    return ActiveLockView(model: model, store: store).frame(width: 700, height: 760)
+}
+#endif
