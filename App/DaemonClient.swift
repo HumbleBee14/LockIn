@@ -54,14 +54,27 @@ final class DaemonClient: Sendable {
         }
     }
 
-    // the alive flag for register/unregister decisions. invariant: an older blocker that still answers is
-    // never unregistered while a lock is held or unknown — it's swapped only once confirmed unlocked
-    func aliveForRegistration() async -> Bool {
+    // invariant: the blocker may only be removed once no lock is held — confirmed by the blocker itself,
+    // or, when it can't answer, by no block left in /etc/hosts or /etc/pf.conf (both world-readable)
+    func mayRemoveDaemon() async -> Bool {
         switch await liveness() {
-        case .current: return true
-        case .unreachable: return false
-        case .older: return await status()?.active != false
+        case .current: return false
+        case .older: return await status()?.active == false
+        case .unreachable: return !Self.liveBlockOnDisk()
         }
+    }
+
+    // the alive flag every register/unregister decision uses: false is the only path to removal
+    func aliveForRegistration() async -> Bool { !(await mayRemoveDaemon()) }
+
+    // mirrors the daemon's liveBlockPresent, read-only from the app side
+    static func liveBlockOnDisk() -> Bool {
+        if let pf = try? String(contentsOfFile: "/etc/pf.conf", encoding: .utf8),
+           pf.contains("anchor \"com.humblebee.lockin\"") { return true }
+        guard let hosts = try? String(contentsOfFile: "/etc/hosts", encoding: .utf8),
+              let h = hosts.range(of: "# BEGIN SELFCONTROL BLOCK"),
+              let f = hosts.range(of: "# END SELFCONTROL BLOCK", range: h.upperBound..<hosts.endIndex) else { return false }
+        return hosts[h.upperBound..<f.lowerBound].contains("0.0.0.0")
     }
 
     func status() async -> DaemonStatus? {
