@@ -42,6 +42,41 @@ final class DaemonClient: Sendable {
         }
     }
 
+    enum Liveness { case current, older, unreachable }
+
+    // tells "running but older" apart from "not answering" — ping() alone reads both as dead
+    func liveness() async -> Liveness {
+        await withCheckedContinuation { cont in
+            let c = connection()
+            let proxy = c.remoteObjectProxyWithErrorHandler { _ in cont.resume(returning: .unreachable) }
+                as? LockInDaemonProtocol
+            proxy?.getVersion { version in cont.resume(returning: version == LockInVersion.current ? .current : .older) }
+        }
+    }
+
+    // invariant: the blocker may only be removed once no lock is held — confirmed by the blocker itself,
+    // or, when it can't answer, by no block left in /etc/hosts or /etc/pf.conf (both world-readable)
+    func mayRemoveDaemon() async -> Bool {
+        switch await liveness() {
+        case .current: return false
+        case .older: return await status()?.active == false
+        case .unreachable: return !Self.liveBlockOnDisk()
+        }
+    }
+
+    // the alive flag every register/unregister decision uses: false is the only path to removal
+    func aliveForRegistration() async -> Bool { !(await mayRemoveDaemon()) }
+
+    // mirrors the daemon's liveBlockPresent, read-only from the app side
+    static func liveBlockOnDisk() -> Bool {
+        if let pf = try? String(contentsOfFile: "/etc/pf.conf", encoding: .utf8),
+           pf.contains("anchor \"com.humblebee.lockin\"") { return true }
+        guard let hosts = try? String(contentsOfFile: "/etc/hosts", encoding: .utf8),
+              let h = hosts.range(of: "# BEGIN SELFCONTROL BLOCK"),
+              let f = hosts.range(of: "# END SELFCONTROL BLOCK", range: h.upperBound..<hosts.endIndex) else { return false }
+        return hosts[h.upperBound..<f.lowerBound].contains("0.0.0.0")
+    }
+
     func status() async -> DaemonStatus? {
         if case .answered(let s) = await statusResult() { return s }
         return nil
@@ -85,6 +120,20 @@ final class DaemonClient: Sendable {
             } as? LockInDaemonProtocol
             proxy?.appendDomainsReturningReason(domains) { reason in cont.resume(returning: reason) }
         }
+    }
+
+    // blocks into the lock holding that set; endsAt = when that lock ends. a daemon from before this call
+    // drops the connection, so fall back to the old call (longest-lived lock, end unknown) rather than fail
+    func appendDomainsReason(_ domains: [String], toBlockSet id: String) async -> (reason: String?, endsAt: Date?) {
+        if await liveness() == .older { return (await appendDomainsReason(domains), nil) }
+        let answer: (String?, Date?)? = await withCheckedContinuation { cont in
+            let c = connection()
+            let proxy = c.remoteObjectProxyWithErrorHandler { _ in cont.resume(returning: nil) }
+                as? LockInDaemonProtocol
+            proxy?.appendDomains(domains, toBlockSetId: id) { reason, endsAt in cont.resume(returning: (reason, endsAt)) }
+        }
+        if let answer { return answer }
+        return (await appendDomainsReason(domains), nil)
     }
 
     enum ResetResult { case done, failed, noHelper }

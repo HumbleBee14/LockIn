@@ -94,6 +94,14 @@ final class DaemonXPC: NSObject, LockInDaemonProtocol {
         onMain(reply, "The blocker isn't running.") { $0.appendDomainsToActiveBlockReason(domains) }
     }
 
+    func appendDomains(_ domains: [String], toBlockSetId blockSetId: String,
+                       reply: @escaping (String?, Date?) -> Void) {
+        onMain({ (r: (String?, Date?)) in reply(r.0, r.1) }, ("The blocker isn't running.", nil)) {
+            let r = $0.appendDomains(domains, blockSetId: blockSetId)
+            return (r.reason, r.endsAt)
+        }
+    }
+
     func resetHostsToDefault(reply: @escaping (Bool) -> Void) {
         let box = ReplyBox(reply: reply)
         guard let controller else { box(false); return }

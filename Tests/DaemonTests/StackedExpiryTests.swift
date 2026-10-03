@@ -258,4 +258,65 @@ final class StackedExpiryTests: XCTestCase {
         XCTAssertEqual(reason, "This would exceed the maximum of \(BlockLimits.maxActiveDomains) blocked sites.",
                        "the union guard must trip even though the target's own domain count is trivially under cap")
     }
+
+    // an add aimed at a lock that expired but awaits the tick must land in a live lock, surviving the tick
+    func testAppendSkipsExpiredLockAwaitingTick() throws {
+        let social = BlockSet(id: "s", name: "Social", domains: ["x.com"], appBundleIds: [], mode: .blocklist)
+        let adult = BlockSet(id: "a", name: "Adult", domains: ["adult.com"], appBundleIds: [], mode: .blocklist)
+        let now = FakeNow(Date(timeIntervalSince1970: 1_700_000_000))
+        let b = FlakyBlocker(forceVerified: true)
+        let (c, url, cfg) = try make("appendexpired", sets: [social, adult], blocker: b, now: now)
+        defer { try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg) }
+        XCTAssertNil(c.startQuickLockReason(blockSetIds: ["s"], durationSeconds: 600))
+        XCTAssertNil(c.startQuickLockReason(blockSetIds: ["a"], durationSeconds: 7200))
+        now.d = now.d.addingTimeInterval(601)   // Social expired, no tick yet
+        let r = c.appendDomains(["reddit.com"], blockSetId: "s")
+        XCTAssertNil(r.reason)
+        XCTAssertEqual(r.endsAt, Date(timeIntervalSince1970: 1_700_000_000 + 7200))
+        c.reconcile()
+        XCTAssertTrue(c.statusDTO().appliedDomains.contains("reddit.com"), "the addition must outlive the expired lock")
+    }
+
+    // with no live blocklist lock left, an add is refused rather than parked in an expired one
+    func testAppendRefusedWhenOnlyExpiredLocksRemain() throws {
+        let social = BlockSet(id: "s", name: "Social", domains: ["x.com"], appBundleIds: [], mode: .blocklist)
+        let now = FakeNow(Date(timeIntervalSince1970: 1_700_000_000))
+        let (c, url, cfg) = try make("appendallexpired", sets: [social], blocker: FlakyBlocker(forceVerified: true), now: now)
+        defer { try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg) }
+        XCTAssertNil(c.startQuickLockReason(blockSetIds: ["s"], durationSeconds: 600))
+        now.d = now.d.addingTimeInterval(601)
+        XCTAssertNotNil(c.appendDomains(["reddit.com"], blockSetId: "s").reason)
+    }
+
+    // a chosen set lands the site in the lock holding it, even a shorter one and a non-primary set
+    func testAppendToChosenSetTargetsLockHoldingIt() throws {
+        let social = BlockSet(id: "s", name: "Social", domains: ["x.com"], appBundleIds: [], mode: .blocklist)
+        let adult = BlockSet(id: "a", name: "Adult", domains: ["adult.com"], appBundleIds: [], mode: .blocklist)
+        let now = FakeNow(Date(timeIntervalSince1970: 1_700_000_000))
+        let (c, url, cfg) = try make("appendchosen", sets: [social, adult], blocker: FlakyBlocker(forceVerified: true), now: now)
+        defer { try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg) }
+        XCTAssertNil(c.startQuickLockReason(blockSetIds: ["a", "s"], durationSeconds: 600))   // short; s non-primary
+        XCTAssertNil(c.startQuickLockReason(blockSetIds: ["a"], durationSeconds: 7200))       // long
+        let r = c.appendDomains(["reddit.com"], blockSetId: "s")
+        XCTAssertNil(r.reason)
+        XCTAssertEqual(r.endsAt, now.d.addingTimeInterval(600))
+        let snaps = c.loadSnapshots()
+        XCTAssertTrue(snaps.min { $0.endsAt < $1.endsAt }!.appliedDomains.contains("reddit.com"))
+        XCTAssertFalse(snaps.max { $0.endsAt < $1.endsAt }!.appliedDomains.contains("reddit.com"))
+        XCTAssertEqual(c.statusDTO().locks?.first?.blockSetIds, ["a", "s"])
+    }
+
+    // a set no lock holds still blocks now, in the longest-lived lock
+    func testAppendToUnlockedSetFallsBackToLongestLock() throws {
+        let social = BlockSet(id: "s", name: "Social", domains: ["x.com"], appBundleIds: [], mode: .blocklist)
+        let now = FakeNow(Date(timeIntervalSince1970: 1_700_000_000))
+        let (c, url, cfg) = try make("appendfallback", sets: [social], blocker: FlakyBlocker(forceVerified: true), now: now)
+        defer { try? FileManager.default.removeItem(at: url); try? FileManager.default.removeItem(at: cfg) }
+        XCTAssertNil(c.startQuickLockReason(blockSetIds: ["s"], durationSeconds: 600))
+        XCTAssertNil(c.startQuickLockReason(blockSetIds: ["s"], durationSeconds: 7200))
+        let r = c.appendDomains(["reddit.com"], blockSetId: "other")
+        XCTAssertNil(r.reason)
+        XCTAssertEqual(r.endsAt, now.d.addingTimeInterval(7200))
+        XCTAssertTrue(c.statusDTO().appliedDomains.contains("reddit.com"))
+    }
 }

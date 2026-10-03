@@ -18,14 +18,14 @@ final class InstallGate: ObservableObject {
     // approve the required website-blocking helper; the poll resolves the pending action once it's live
     func approveDaemon() async {
         installer.lastError = nil
-        let alive = await client.ping()
+        let alive = await client.aliveForRegistration()
         installer.registerDaemon(alive: alive)
     }
 
     // one Approve covers both helpers — the OS background-activity toggle is per-app, not per-helper
     func approveAll() async {
         installer.lastError = nil
-        let alive = await client.ping()
+        let alive = await client.aliveForRegistration()
         installer.approveAll(daemonAlive: alive)
     }
 
@@ -59,7 +59,7 @@ final class InstallGate: ObservableObject {
                 return
             }
             if await pingWithRetry() == false {
-                installer.registerDaemon(alive: false)
+                installer.registerDaemon(alive: await client.aliveForRegistration())
                 guard await pingWithRetry() else {
                     installer.lastError = "Couldn’t start the background service. Quit LockIn and reopen it; if it persists, restart your Mac."
                     return
@@ -73,9 +73,12 @@ final class InstallGate: ObservableObject {
         }
     }
 
+    // reinstall from the "can't reach the blocker" screen; never tears down a blocker that may hold a lock
     func forceReinstall() {
-        installer.unregisterAll()
-        showingInstall = true
+        Task {
+            if await client.mayRemoveDaemon() { installer.unregisterAll() }
+            showingInstall = true
+        }
     }
 
     func cancel() {

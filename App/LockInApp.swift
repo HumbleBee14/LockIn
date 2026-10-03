@@ -36,7 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ensureWindowVisible()
         Task { @MainActor in
             let installer = InstallerService()
-            let alive = await DaemonClient().ping()
+            let alive = await DaemonClient().aliveForRegistration()
             installer.reconcileStaleRegistration(daemonAlive: alive)
             installer.registerAgentIfDaemonReady()
         }

@@ -34,7 +34,8 @@ final class HelperHealth: ObservableObject {
     func refresh() async {
         installer.refreshStatus()
         let installed = installer.daemonStatus == .enabled
-        let daemonAlive = installed ? await client.ping() : false
+        // an older blocker still enforces, so it counts as active here
+        let daemonAlive = installed ? await client.liveness() != .unreachable : false
         let website = installed && daemonAlive
         let app = installer.agentStatus == .enabled && ProcessLiveness.isRunning(executableSuffix: "lockin-agent")
         status = ProtectionStatus(websiteActive: website, appActive: app, installed: installed)
@@ -43,7 +44,7 @@ final class HelperHealth: ObservableObject {
     func reactivate() async {
         reactivating = true
         defer { reactivating = false }
-        let daemonAlive = await client.ping()
+        let daemonAlive = await client.aliveForRegistration()
         if installer.daemonStatus == .enabled, !daemonAlive {
             installer.registerDaemon(alive: false)
         }
